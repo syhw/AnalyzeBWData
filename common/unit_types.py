@@ -35,3 +35,10 @@ class by_race:
             'P' : 'Protoss Probe', 
             'Z' : 'Zerg Drone'}
 
+unit_double_pop = {
+'Terran Marine' : 2, 'Terran Ghost' : 2, 'Terran Vulture' : 4, 'Terran Goliath': 4, 'Terran Siege Tank Tank Mode' : 4, 'Terran Wraith' : 4, 'Terran Science Vessel' : 4, 'Terran Battlecruiser' : 12, 'Terran Siege Tank Siege Mode' : 4, 'Terran Firebat' : 2, 'Terran Medic' : 2, 'Terran Valkyrie' : 6,
+'Protoss Observer' : 2, 'Protoss Dragoon' : 4, 'Protoss Zealot' : 4, 'Protoss Archon' : 8, 'Protoss Reaver' : 8, 'Protoss High Templar' : 4, 'Protoss Arbiter': 8, 'Protoss Carrier' : 12, 'Protoss Scout' : 6, 'Protoss Dark Archon' : 8, 'Protoss Corsair' : 4, 'Protoss Dark Templar' : 4, 'Zerg Zergling' : 1, 'Zerg Devourer' : 4, 'Zerg Guardian' : 4, 'Zerg Ultralisk' : 8, 'Zerg Queen' : 4, 'Zerg Hydralisk' : 2, 'Zerg Mutalisk' : 4, 'Zerg Scourge' : 1, 'Zerg Lurker' : 4, 'Zerg Defiler' : 4,
+'Terran SCV' : 2, 
+'Protoss Probe' : 2, 
+'Zerg Drone' : 2
+}

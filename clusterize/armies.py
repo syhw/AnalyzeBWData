@@ -1,5 +1,15 @@
 import sys, os, pickle, copy, itertools
 from common import data_tools
+from common import unit_types
+
+def evaluate_pop(d):
+    r = {}
+    for (k,v) in d.iteritems():
+        s = 0
+        for (kk, vv) in v:
+            s += unit_types.unit_double_pop[kk]*vv
+        r[k] = s
+    return r
 
 def extract_armies(f):
     """ take a file and parse it for attacks, returning a list of attacks
@@ -9,7 +19,7 @@ def extract_armies(f):
     for line in f:
         if 'IsAttacked' in line:
             tmp = data_tools.parse_dicts(line, lambda x: int(x))
-            attacks.append(tmp)
+            attacks.append((tmp[0], tmp[1]))
     return attacks
 
 f = sys.stdin
