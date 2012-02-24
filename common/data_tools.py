@@ -35,7 +35,7 @@ def consume_dict(delim, s, f=lambda x: x):
             v = ''
         elif char == delim[1]:
             if k != '':
-                if type(v) == type(''):
+                if type(v) == str:
                     d[k] = f(v)
                 else:
                     d[k] = v
@@ -77,3 +77,16 @@ def parse_dicts(s, f=lambda x: x):
         opening = rs.find('{')
     return r
 
+def players_races(f):
+    """ returns a dict filled with {player_id : race} """
+    r = {}
+    read = False
+    for line in f:
+        if "The following players are in this replay:" in line:
+            read = True
+        elif "Begin replay data:" in line:
+            break
+        elif read:
+            l = line.split(',')
+            r[l[0]] = l[2][1]
+    return r
