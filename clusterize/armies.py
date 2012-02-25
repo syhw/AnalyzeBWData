@@ -37,7 +37,7 @@ def format_battle_for_regr(players_races, armies_battle):
     p = []
     for k in armies_battle[1].iterkeys():
         p.append((k,players_races[k]))
-    assert(len(p) == 2)
+    assert(len(p) <= 2)
     p1 = p[0][0]
     p2 = p[1][0]
     if p[0][1] == 'T' and p[1][1] == 'P':
