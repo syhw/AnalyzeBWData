@@ -27,17 +27,32 @@ def extract_armies_battles(f):
     for line in f:
         if 'IsAttacked' in line:
             tmp = data_tools.parse_dicts(line, lambda x: int(x))
+            # sometimes the observers are detected in the fight (their SCVs)
+            ##########################
+            # TODO clean this heuristic
+            if (len(tmp[0]) > 2):
+                keys_to_del = []
+                for k,v in tmp[0].iteritems():
+                    to_del = True
+                    for unit in v:
+                        if unit != 'Terran SCV' and unit != 'Terran Command Center':
+                            to_del = False
+                            break
+                    if to_del:
+                        keys_to_del.append(k)
+                for k in keys_to_del:
+                    tmp[0].pop(k)
+                    tmp[1].pop(k)
+                    tmp[2].pop(k)
+            ##########################
             attacks.append((int(line.split(',')[0]),tmp[0], tmp[1], tmp[2]))
     return attacks
 
-def format_battle_for_regr(players_races, armies_battle):
-    """ take an "extract_armies_battles" formatted battle data and make it
-    ready for regression with P > T > Z in order, then on player id order,
-    and player1_score - player2_score """
+def format_battle_init(players_races, army):
     p = []
-    for k in armies_battle[1].iterkeys():
+    for k in army.iterkeys():
         p.append((k,players_races[k]))
-    assert(len(p) <= 2)
+    assert(len(p) == 2)
     p1 = p[0][0]
     p2 = p[1][0]
     if p[0][1] == 'T' and p[1][1] == 'P':
@@ -46,23 +61,38 @@ def format_battle_for_regr(players_races, armies_battle):
     elif p[0][1] == 'Z':
         p1 = p[1][0]
         p2 = p[0][0]
+    return p1, p2
+
+def append_units_numbers(l, player, players_races, army):
+    for unit in unit_types.by_race.military[players_races[player]]:
+        l.append(army[player].get(unit, 0))
+    for unit in unit_types.by_race.static_defense[players_races[player]]:
+        l.append(army[player].get(unit, 0))
+    l.append(army[player].get(unit_types.by_race.workers[
+        players_races[player]], 0))
+
+def format_battle_for_regr(players_races, armies_battle):
+    """ take an "extract_armies_battles" formatted battle data and make it
+    ready for regression with P > T > Z in order, then on player id order,
+    and player1_score - player2_score """
+    p1, p2 = format_battle_init(players_races, armies_battle[1])
     tmp = []
-    for unit in unit_types.by_race.military[players_races[p1]]:
-        tmp.append(armies_battle[1][p1].get(unit, 0))
-    for unit in unit_types.by_race.static_defense[players_races[p1]]:
-        tmp.append(armies_battle[1][p1].get(unit, 0))
-    tmp.append(armies_battle[1][p1].get(unit_types.by_race.workers[
-        players_races[p1]], 0))
-    for unit in unit_types.by_race.military[players_races[p2]]:
-        tmp.append(armies_battle[1][p2].get(unit, 0))
-    for unit in unit_types.by_race.static_defense[players_races[p2]]:
-        tmp.append(armies_battle[1][p2].get(unit, 0))
-    tmp.append(armies_battle[1][p2].get(unit_types.by_race.workers[
-        players_races[p2]], 0))
+    append_units_numbers(tmp, p1, players_races, armies_battle[1])
+    append_units_numbers(tmp, p2, players_races, armies_battle[1])
     scores = evaluate_pop(armies_battle[2])
     wrk_scores = armies_battle[3][p1]*2 - armies_battle[3][p1]*2
     tmp.append(scores[p1] - scores[p2] + wrk_scores)
     return tmp
+
+def format_battle_for_clust(players_races, armies_battle):
+    """ take an "extract_armies_battles" formatted battle data and make it
+    ready for clustering by considering only battles which were efficient
+    (on a food value) per number of units and returning 2 vectors of units
+    numbers per unit types """
+    p1, p2 = format_battle_init(players_races, armies_battle[1])
+    pop_max = evaluate_pop(armies_battle[1])
+    pop_after = evaluate_pop(armies_battle[2])
+    return [],[]
 
 f = sys.stdin
 if __name__ == "__main__":
@@ -72,36 +102,64 @@ if __name__ == "__main__":
             fscaled = pickle.load(open('fscaled.blob', 'r'))
         else:
             armies_battles_for_regr = []
+            armies_battles_for_clust = []
             # [[P1units],[P2units],battle_result]
+            fnamelist = []
             if sys.argv[1] == '-d': # -d for directory
                 import glob
-                for fname in glob.iglob(sys.argv[2] + '/*.rgd'):
-                    f = open(fname)
-                    battles = map(functools.partial(format_battle_for_regr,
-                            data_tools.players_races(f)),
-                            extract_armies_battles(f))
-                    armies_battles_for_regr.extend(battles)
+                fnamelist = glob.iglob(sys.argv[2] + '/*.rgd')
             else:
-                for arg in sys.argv[1:]:
-                    f = open(arg)
-                    battles = map(functools.partial(format_battle_for_regr,
-                            data_tools.players_races(f)),
-                            extract_armies_battles(f))
-                    armies_battles_for_regr.extend(battles)
+                fnamelist = sys.argv[1:]
+            for fname in fnamelist:
+                f = open(fname)
+                players_races = data_tools.players_races(f)
+                armies_raw = extract_armies_battles(f)
+                battles_r = map(functools.partial(format_battle_for_regr,
+                        players_races), armies_raw)
+                armies_battles_for_regr.extend(battles_r)
+                #battles_c = map(functools.partial(format_battle_for_clust,
+                #        data_tools.players_races(f)), armies_raw)
+                #armies_battles_for_clust.extend(battles_c)
+
             armies_battles_regr_raw = np.array(armies_battles_for_regr, np.float32)
             armies_battles_regr_fscaled = data_tools.features_scaling(armies_battles_regr_raw)
             from sklearn import linear_model
+
+            import pylab as pl
+            from sklearn.decomposition import PCA, FastICA
+
             X = armies_battles_regr_fscaled[:,:-1]
             Y = armies_battles_regr_fscaled[:,-1]
             clf = linear_model.LinearRegression()
             print clf.fit(X, Y)
             print clf.score(X, Y)
+
+            pca = PCA(1)
+            X_r = pca.fit(X).transform(X)
+            print clf.fit(X_r, Y)
+            print clf.score(X_r, Y)
+            pl.scatter(X_r, Y, color='black')
+            pl.plot(X_r, clf.predict(X_r), color='blue', linewidth=3)
+            pl.xticks(())
+            pl.yticks(())
+            pl.show()
+
+            pca = PCA(2)
+            X_r = pca.fit(X).transform(X)
+            print clf.fit(X_r, Y)
+            print clf.score(X_r, Y)
+            pl.scatter(X_r[:,0], X_r[:,1], color='black')
+            pl.plot(X_r, clf.predict(X_r), color='blue', linewidth=3)
+            pl.xticks(())
+            pl.yticks(())
+            pl.show()
+
             clf = linear_model.BayesianRidge()
             print clf.fit(X, Y)
             print clf.score(X, Y)
+
             clf = linear_model.Lasso(alpha = 0.1)
             print clf.fit(X, Y)
             print clf.score(X, Y)
-
 
 
