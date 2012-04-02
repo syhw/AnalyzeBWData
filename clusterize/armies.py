@@ -111,15 +111,27 @@ def format_battle_for_regr(players_races, armies_battle):
     tmp.append(scores[p1] - scores[p2] + wrk_scores)
     return tmp
 
-def format_battle_for_clust(players_races, armies_battle):
+def format_battle_for_clust_adv(players_races, armies_battle):
     """ take an "extract_armies_battles" formatted battle data and make it
     ready for clustering by considering only battles which were efficient
     (on a food value) per number of units and returning 2 vectors of units
     numbers per unit types """
+    # TODO 
     p1, p2 = format_battle_init(players_races, armies_battle[1])
+    print armies_battle
     pop_max = evaluate_pop(armies_battle[1])
     pop_after = evaluate_pop(armies_battle[2])
     return [],[]
+
+def format_battle_for_clust(players_races, armies_battle):
+    """ take an "extract_armies_battles" formatted battle data and make it
+    ready for clustering (ex: 'Protoss Dragoon': 12, 'Protoss Zealot': 6)
+    returning 1 dict of vectors of units numbers per unit types, per race """
+    r = {'P': [], 'T': [], 'Z': []}
+    for k,v in players_races.iteritems():
+        if k in armies_battle[1]: # armies_battle[1] is "max units engaged"
+            r[v].append(copy.deepcopy(armies_battle[1][k]))
+    return r
 
 f = sys.stdin
 if __name__ == "__main__":
@@ -129,7 +141,7 @@ if __name__ == "__main__":
             fscaled = pickle.load(open('fscaled.blob', 'r'))
         else:
             armies_battles_for_regr = []
-            armies_battles_for_clust = []
+            armies_battles_for_clust = {'P': [], 'T': [], 'Z': []}
             # [[P1units],[P2units],battle_result]
             fnamelist = []
             if sys.argv[1] == '-d': # -d for directory
@@ -144,9 +156,13 @@ if __name__ == "__main__":
                 battles_r = map(functools.partial(format_battle_for_regr,
                         players_races), armies_raw)
                 armies_battles_for_regr.extend(battles_r)
-                #battles_c = map(functools.partial(format_battle_for_clust,
-                #        data_tools.players_races(f)), armies_raw)
-                #armies_battles_for_clust.extend(battles_c)
+                battles_c = map(functools.partial(format_battle_for_clust,
+                        players_races), armies_raw)
+                for b in battles_c:
+                    for k in armies_battles_for_clust.iterkeys():
+                        armies_battles_for_clust[k].extend(b[k])
+                # TODO clustering advanced with only efficient battles/armies
+                # TODO adversary classification (what works against what)
 
             armies_battles_regr_raw = np.array(armies_battles_for_regr, np.float32)
             armies_battles_regr_fscaled = data_tools.features_scaling(armies_battles_regr_raw)
