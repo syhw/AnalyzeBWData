@@ -91,11 +91,25 @@ def parse_attacks(s):
     tmpp = re.search('\((\d+),(\d+)\)', s)
     p = (tmpp.groups(1), tmpp.groups(2))
     tmpscores = re.search('\((\d+\.\d\d\d\d),(\d+\.\d\d\d\d),(\d+\.\d\d\d\d),(\d+\.\d\d\d\d),(\d+\.\d\d\d\d),(\d+\.\d\d\d\d),(\d+\.\d\d\d\d),(\d+\.\d\d\d\d)', s)
+    # all these "max" in the score could instead be 2 scores leading to 
+    # two different sets of learned parameters TODO
     scores = {'ground': max(tmpscores.groups(1), tmpscores.groups(2)),
+            # ground score is unit_types.score_unit applied to units who/which
+            # can fire on ground units in the region (for the defender)
               'air': max(tmpscores.groups(3), tmpscores.groups(4)),
+            # air score is unit_types.score_unit applied to units who/which
+            # can fire on air units in the region (for the defender)
               'detect': max(tmpscores.groups(5), tmpscores.groups(6)),
+            # detect score is the number of units with detection in the region
               'eco': max(tmpscores.groups(7), tmpscores.groups(8)),
+            # eco score is the number of working peons in the region 
+            # divided per the total number of working peons for the defender
               'tactic': max(tmpscores.groups(9), tmpscores.groups(10))}
+            # tactic score is proportional to the sum of the square distances
+            # to bases + to the region closest to the mean position of the army
+            # i.e. tactic score for a region r is prop. to: 
+            #   \sum_{b \in bases}[dist(r, b)^2]
+            # + dist(r, 1/#units * \sum_{pu \in pos_units}pu)^2
     # (types_list, init_position_tuple, scores_dict)
     return (t, p, scores)
 
