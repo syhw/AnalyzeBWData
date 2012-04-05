@@ -1,4 +1,4 @@
-import sys
+import sys, re
 try:
     import numpy as np
 except:
@@ -76,6 +76,28 @@ def parse_dicts(s, f=lambda x: x):
         rs = rs[closing+1:]
         opening = rs.find('{')
     return r
+
+def parse_attacks(s):
+    """ return a tuple (types_list, init_position_tuple, scores_dict) """
+    l = s.split(',')
+    l[3] = l[3][1:]
+    t = []
+    for i in range(3,len(l)):
+        if l[i][-1] != ')':
+            t.append(l[i])
+        else:
+            t.append(l[i][:-1])
+            break
+    tmpp = re.search('\((\d+),(\d+)\)', s)
+    p = (tmpp.groups(1), tmpp.groups(2))
+    tmpscores = re.search('\((\d+\.\d\d\d\d),(\d+\.\d\d\d\d),(\d+\.\d\d\d\d),(\d+\.\d\d\d\d),(\d+\.\d\d\d\d),(\d+\.\d\d\d\d),(\d+\.\d\d\d\d),(\d+\.\d\d\d\d)', s)
+    scores = {'ground': max(tmpscores.groups(1), tmpscores.groups(2)),
+              'air': max(tmpscores.groups(3), tmpscores.groups(4)),
+              'detect': max(tmpscores.groups(5), tmpscores.groups(6)),
+              'eco': max(tmpscores.groups(7), tmpscores.groups(8)),
+              'tactic': max(tmpscores.groups(9), tmpscores.groups(10))}
+    # (types_list, init_position_tuple, scores_dict)
+    return (t, p, scores)
 
 def players_races(f):
     """ returns a dict filled with {player_id : race} """

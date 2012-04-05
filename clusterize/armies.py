@@ -1,6 +1,7 @@
 import sys, os, pickle, copy, itertools, functools
 from common import data_tools
 from common import unit_types
+from common import attack_tools
 try:
     import numpy as np
 except:
@@ -22,56 +23,15 @@ def extract_armies_battles(f):
     the (max) armies of each player in form of a dict and
     the remaining units at the end in form of a dict and
     the number of workers lost for each player:
-        [(attack_time, {plid:{uid:nb}}, {plid:{uid:nb}}, {plid:wrks_lost})] """
-
-    def detect_observers(line):
-        if len(obs) == 0 and 'Created' in line:
-            l = line.split(',')
-            if l[1] not in num_created:
-                num_created[l[1]] = 1
-            else:
-                num_created[l[1]] += 1
-            if int(l[0]) > 4320: # 3 minutes * 60 seconds * 24 frames/s
-                for k,v in num_created.iteritems():
-                    if v < 8: # 5 workers + 1 townhall = 6 created by starting
-                        obs.append(k)
-
-    def heuristics_remove_observers(d):
-        """ look if there are more than 2 players engaged in the battle
-        and seek player with nothing else than SCV and Command Centers engaged
-        in the battle
-        """
-        if len(d[0]) > 2: # d[0] are all units involved, if len(d[0] > 2
-            # it means that there are more than 2 players in the battle
-            if len(d[0]) - len(obs) > 2: # a player is not captured by the obs
-                # heuristic (building SCV at the beginning)
-                keys_to_del = set()
-                for k,v in d[0].iteritems():
-                    to_del = True
-                    for unit in v:
-                        if unit != 'Terran SCV' and unit != 'Terran Command Center':
-                            to_del = False
-                            break
-                    if to_del:
-                        keys_to_del.add(k)
-                for kk in range(len(d)):
-                    for k in keys_to_del:
-                        d[kk].pop(k)
-            else: # remove the observing players from the battle
-                for kk in range(len(d)):
-                    for k in obs:
-                        d[kk].pop(k)
-        return d
-    
+        [(attack_time, {plid:{uid:nb}}, {plid:{uid:nb}}, {plid:wrks_lost})] """ 
     attacks = []
-    obs = []
-    num_created = {}
+    obs = attack_tools.Observers()
     for line in f:
-        detect_observers(line)
+        obs.detect_observers(line)
         if 'IsAttacked' in line:
             tmp = data_tools.parse_dicts(line, lambda x: int(x))
             # sometimes the observers are detected in the fight (their SCVs)
-            tmp = heuristics_remove_observers(tmp)
+            tmp = obs.heuristics_remove_observers(tmp)
             attacks.append((int(line.split(',')[0]),tmp[0], tmp[1], tmp[2]))
     return attacks
 
@@ -237,3 +197,10 @@ if __name__ == "__main__":
             scores = cross_validation.cross_val_score(
                          clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
             print scores
+
+            #import ldavb
+            #clust = LDAVB()
+            #print clust.fit(armies_battles_for_clust['P'])
+            #print clust.fit(armies_battles_for_clust['T'])
+            #print clust.fit(armies_battles_for_clust['Z'])
+            
