@@ -92,7 +92,9 @@ class DistancesMaps:
                     else:
                         self.dist_CDR[i_l[i]] = {j : e}
     def dist(self, r1, r2, t='Reg'):
-        if t == 'Reg':
+        if r1 == r2:
+            return 0.0
+        elif t == 'Reg':
             return self.dist_Reg[r1][r2] 
         elif t == 'CDR':
             return self.dist_CDR[r1][r2]

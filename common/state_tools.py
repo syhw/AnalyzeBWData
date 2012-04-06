@@ -65,7 +65,6 @@ class GameState:
             frame = int(l.split(',')[0])
             if frame > self.last_loc_frame: # only if frame increased
                 for line in self.floc:
-                    print line
                     t = ''
                     if 'CDR' in line:
                         t = 'CDR'

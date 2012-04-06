@@ -18,13 +18,23 @@ def extract_tactics_battles(fname, dm, pm=None):
         for k in d:
             if k != defender:
                 return k
-    def belong(r, defender, attacker, state, dist, t='Reg'):
+    def belong(r, defender, attacker, st, dist, t='Reg'):
         """ tells how much a base belongs to the defender """
         # Current version is a "max", because r is can be a CDR or a Reg. 
         # see also data_tools.parse_attacks. TODO
-        da = min([dist.dist(r, rb, t) for rb in state.players_bases[attacker][t]])
-        dd = min([dist.dist(r, rb, t) for rb in state.players_bases[defender][t]])
-        if dd < da:
+        def positive(x):
+            return x >= 0.0
+        l_da = filter(positive, [dist.dist(r, rb, t) for rb in st.players_bases[attacker][t]])
+        da = 100000000000
+        if l_da != []:
+            da = min(l_da)
+        l_dd = filter(positive, [dist.dist(r, rb, t) for rb in st.players_bases[defender][t]])
+        dd = 100000000000
+        if l_dd != []:
+            dd = min(l_dd)
+        if dd <= 0.0 and da <= 0.0:
+            return {False: 0.5, True: 0.5}
+        elif dd < da:
             return {False: 0.5*dd/da, True: 1.0 - 0.5*dd/da}
         else:
             return {False: 1.0 - 0.5*da/dd, True: 0.5*da/dd}
@@ -39,16 +49,12 @@ def extract_tactics_battles(fname, dm, pm=None):
         st.update(line)
         if 'IsAttacked' in line:
             tmp = data_tools.parse_attacks(line)
-            print tmp[1]
             cdr = pm.get_CDR(tmp[1][0], tmp[1][1])
             reg = pm.get_Reg(tmp[1][0], tmp[1][1])
             units = data_tools.parse_dicts(line)
             units = obs.heuristics_remove_observers(units)
             defender = line.split(',')[1]
             attacker = detect_attacker(defender, units[0])
-            print cdr
-            print reg
-            print st.players_bases
             b1 = belong(cdr, defender, attacker, st, dm, t='CDR')
             b2 = belong(reg, defender, attacker, st, dm, t='Reg')
             if b1[True] > b2[True]:
