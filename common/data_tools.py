@@ -98,7 +98,7 @@ def parse_attacks(s):
             sc.append(0.0) # TODO verif
         else:
             sc.append(float(tmpscores.group(i)))
-    # all these "max" in the score could instead be 2 scores leading to 
+    # all these "max" in the score should instead be 2 scores leading to 
     # two different sets of learned parameters TODO
     scores = {'ground': max(sc[0], sc[1]),
             # ground score is unit_types.score_unit applied to units who/which

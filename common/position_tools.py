@@ -49,6 +49,7 @@ class DistancesMaps:
         """ f should be a rld (replay location data) opened file """
         self.dist_Reg = {} # dist_Reg[r1][r2] = ground pathfinding distance
         self.dist_CDR = {}
+        self.max_dist = 0.0
         i_l = []
         Reg = False
         CDR = False
@@ -70,6 +71,8 @@ class DistancesMaps:
                 d_l = [float(x) for x in l[1:]]
                 j = int(l[0])
                 for i, e in enumerate(d_l):
+                    if e > self.max_dist:
+                        self.max_dist = e
                     if j in self.dist_Reg:
                         self.dist_Reg[j][i_l[i]] = e
                     else:
@@ -83,6 +86,8 @@ class DistancesMaps:
                 d_l = [float(x) for x in l[1:]]
                 j = int(l[0])
                 for i, e in enumerate(d_l):
+                    if e > self.max_dist:
+                        self.max_dist = e
                     if j in self.dist_CDR:
                         self.dist_CDR[j][i_l[i]] = e
                     else:

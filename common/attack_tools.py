@@ -23,7 +23,7 @@ class Observers:
         """
         if len(d[0]) > 2: # d[0] are all units involved, if len(d[0] > 2
             # it means that there are more than 2 players in the battle
-            if len(d[0]) - len(self.obs) > 2: # a player is not captured by the obs
+            if len(d[0]) - len(self.obs) > 2: # a player is not captured by the obs removal
                 # heuristic (building SCV at the beginning)
                 keys_to_del = set()
                 for k,v in d[0].iteritems():
@@ -40,5 +40,6 @@ class Observers:
             else: # remove the observing players from the battle
                 for kk in range(len(d)):
                     for k in self.obs:
-                        d[kk].pop(k)
+                        if k in d[kk]:
+                            d[kk].pop(k)
         return d

@@ -12,6 +12,56 @@ except:
     sys.exit(-1)
 
 ADD_SMOOTH = 1.0 # Laplace smoothing, could be less
+TACT_PARAM = 1.6 # power of the distance of units to/from regions
+# 1.6 means than a region which is at distance 1 of the two halves of the army
+# of the player is 1.5 more important than one at distance 2 of the full army
+##### TODO remove
+ts1accu = []
+ts2accu = []
+tsaccu = []
+distrib = []
+##### /TODO remove
+
+def army(state, player):
+    """ In the given 'state', returns the army (in Unit()) of the 'player' """
+    a = []
+    for uid, unit in state.tracked_units.iteritems():
+        if unit.player == player and unit.name in unit_types.military_set:
+            a.append(unit)
+    return a
+
+def compute_tactical_distrib(state, player, dm, r, t='Reg'):
+    """ 
+    Computes the tactical score of Reg/CDR 'r', according to 'state'
+    and for 'player' ('dm' is the distance map and 't' the type of 'r'):
+    tactical_score[reg] = \sum_{unit}[score[unit]*dist(unit,reg)^TACT_PARAM]
+    normalized (between 0.0 and 1.0), the lower the better 
+    (lower <=> closer to the mean square of the army)
+    """
+    # TODO review this heuristic
+    tot = 0.00001
+    a = army(state, player)
+    s = {}
+    ref = dm.dist_Reg
+    if t == 'CDR':
+        ref = dm.dist_CDR
+    for tmpr in ref:
+        s[tmpr] = 0.0
+        for unit in a:
+            d = dm.dist(unit[t], tmpr, t)
+            if d > 0.0:
+                s[tmpr] += unit_types.score_unit(unit.name)*(d**TACT_PARAM)
+            else:
+                s[tmpr] += unit_types.score_unit(unit.name)*(dm.max_dist**TACT_PARAM)
+        tot += s[tmpr]
+    ##### TODO remove
+    tmp = []
+    for k,v in s:
+        tmp.append(v)
+    tmp.sort()
+    distrib.append(tmp[:10])
+    ##### /TODO remove
+    return s[r]/tot
 
 def extract_tactics_battles(fname, dm, pm=None):
     def detect_attacker(defender, d):
@@ -57,20 +107,31 @@ def extract_tactics_battles(fname, dm, pm=None):
             attacker = detect_attacker(defender, units[0])
             b1 = belong(cdr, defender, attacker, st, dm, t='CDR')
             b2 = belong(reg, defender, attacker, st, dm, t='Reg')
+            # pick the max score of "this region belongs to the defender"
             if b1[True] > b2[True]:
                 tmp[2]['belong'] = b1
             else:
                 tmp[2]['belong'] = b2
+            # use an alternative tactical score: mean ground (pathfinding)
+            # distance of the region to the defender's army
+            ts1 = compute_tactical_distrib(st, defender, dm, cdr, t='CDR')
+            ts2 = compute_tactical_distrib(st, defender, dm, reg, t='Reg')
+            tmp[2]['tactic'] = max(ts1, ts2)
+            ##### TODO remove
+            ts1accu.append(ts1)
+            ts2accu.append(ts2)
+            tsaccu.append(tmp[2]['tactic'])
+            ##### /TODO remove
             battles.append((tmp[0], tmp[2]))
     return battles
 
 class TacticalModel:
     """
     For all region r we have:
-        A (Attack) = true/false
-        EI (Economical importance) = [[0..9]] for the player considered
-        TI (Tactical importance) = [[0..9]] for the player considered
-        B (Belongs) = {True/False} for the player considered
+        A (Attack) in true/false
+        EI (Economical importance) in [[0..9]] for the player considered
+        TI (Tactical importance) in [[0..9]] for the player considered
+        B (Belongs) in {True/False} for the player considered
             # P(A, EI, TI, B) = P(EI|A)P(TI|A)P(B|A)P(A)
         ==> P(A, EI, TI, B) = P(EI)P(TI)P(B)P(A | EI, TI, B)
         ?: P([A=1] | EEI, TI) = sum_B[P([A=1] | EI, TI, B).P(B)]
@@ -79,10 +140,10 @@ class TacticalModel:
         P(B=True) prop to min_{base \in players'bases}(dist(r, base))
         ex.: P(B=True) = 0.5 in the middle of the map
 
-        H (How) = {Ground, Air, Drop, Invisible}
-        AD (Air defense) = {0, 1, 2}
-        GD (Ground defense) = {0, 1, 2}
-        ID (Invisible defense = detectors) = {0, 1, 2}
+        H (How) in {Ground, Air, Drop, Invisible}
+        AD (Air defense) in {0, 1, 2}
+        GD (Ground defense) in {0, 1, 2}
+        ID (Invisible defense = detectors) in {0, 1, 2}
             # P(H, AD, GD, ID) = P(AD|H)P(GD|H)P(ID|H)P(H)
         ==> P(H, AD, GD, ID) = P(AD)P(GD)P(ID)P(H | AD, GD, ID)
         ?: P(H) = sum_{AD}[P(AD) sum_{GD}[P(GD) sum_{ID}[P(ID)P(H | AD, GD, ID)]]]
@@ -100,8 +161,21 @@ class TacticalModel:
         self.H_knowing_AD_GD_ID = np.ndarray(shape=(4,3,3,3), dtype='float')
         self.H_knowing_AD_GD_ID.fill(ADD_SMOOTH)
     def train(self, battles):
+        """
+        (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 1.0, True: 0.0}, 'air': 0.0, 'tactic': 238768128.0, 'ground': 200.0})
+        (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.0949367088607595, True: 0.9050632911392404}, 'air': 583.3333, 'tactic': 348216770.56, 'ground': 1183.3333})
+        ([], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.0949367088607595, True: 0.9050632911392404}, 'air': 583.3333, 'tactic': 422453411.84, 'ground': 583.3333})
+        (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.0949367088607595, True: 0.9050632911392404}, 'air': 0.0, 'tactic': 348216770.56, 'ground': 1200.0})
+        (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.0949367088607595, True: 0.9050632911392404}, 'air': 0.0, 'tactic': 349539205.12, 'ground': 1500.0})
+        (['GroundAttack'], {'detect': 0.0, 'eco': 0.3, 'belong': {False: 0.0, True: 1.0}, 'air': 2916.6667, 'tactic': 505865584.64, 'ground': 4131.6667})
+        (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.9160789844851904, True: 0.08392101551480959}, 'air': 0.0, 'tactic': 172366888.96, 'ground': 200.0})
+        (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.2724373576309795, True: 0.7275626423690205}, 'air': 1458.3333, 'tactic': 217653329.92, 'ground': 1858.3333})
+        (['GroundAttack'], {'detect': 1.0, 'eco': 0.0, 'belong': {False: 0.0, True: 1.0}, 'air': 2041.6667, 'tactic': 315149639.68, 'ground': 2141.6667})
+        (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.46119324181626187, True: 0.5388067581837381}, 'air': 3500.0, 'tactic': 260198359.04, 'ground': 3600.0})
+        """
         for b in battles:
             print b
+        print "I've seen", len(battles), "battles"
 
 if __name__ == "__main__":
     # serialize?
@@ -124,5 +198,14 @@ if __name__ == "__main__":
     tactics = TacticalModel()
     tactics.train(battles)
     print tactics
+    ##### TODO remove
+    import matplotlib.pyplot as plt
+    plt.hist(tsaccu,10)
+    plt.show()
+    plt.hist(ts1accu,10)
+    plt.show()
+    plt.hist(ts2accu,10)
+    plt.show()
+    ##### /TODO remove
 
 
