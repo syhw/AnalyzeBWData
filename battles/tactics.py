@@ -16,6 +16,7 @@ TACT_PARAM = 1.6 # power of the distance of units to/from regions
 # 1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
 ##### TODO remove
+SHOW_TACTICAL_SCORES = True
 ts1accu = []
 ts2accu = []
 tsaccu = []
@@ -55,11 +56,12 @@ def compute_tactical_distrib(state, player, dm, r, t='Reg'):
                 s[tmpr] += unit_types.score_unit(unit.name)*(dm.max_dist**TACT_PARAM)
         tot += s[tmpr]
     ##### TODO remove
-    tmp = []
-    for k,v in s:
-        tmp.append(v)
-    tmp.sort()
-    distrib.append(tmp[:10])
+    if SHOW_TACTICAL_SCORES:
+        tmp = []
+        for k,v in s.iteritems():
+            tmp.append(v)
+        tmp.sort()
+        distrib.append(tmp[:12])
     ##### /TODO remove
     return s[r]/tot
 
@@ -118,9 +120,10 @@ def extract_tactics_battles(fname, dm, pm=None):
             ts2 = compute_tactical_distrib(st, defender, dm, reg, t='Reg')
             tmp[2]['tactic'] = max(ts1, ts2)
             ##### TODO remove
-            ts1accu.append(ts1)
-            ts2accu.append(ts2)
-            tsaccu.append(tmp[2]['tactic'])
+            if SHOW_TACTICAL_SCORES:
+                ts1accu.append(ts1)
+                ts2accu.append(ts2)
+                tsaccu.append(tmp[2]['tactic'])
             ##### /TODO remove
             battles.append((tmp[0], tmp[2]))
     return battles
@@ -160,6 +163,11 @@ class TacticalModel:
         # H_knowing_AD_GD_ID[ground/air/drop/invis][ad][gd][id] = proba
         self.H_knowing_AD_GD_ID = np.ndarray(shape=(4,3,3,3), dtype='float')
         self.H_knowing_AD_GD_ID.fill(ADD_SMOOTH)
+    def __repr__(self):
+        print "*** P(A=true | EI, TI, B) ***"
+        print self.Atrue_knowing_EI_TI_B
+        print "*** P(H | AD, GD, ID) ***"
+        print self.H_knowing_AD_GD_ID
     def train(self, battles):
         """
         (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 1.0, True: 0.0}, 'air': 0.0, 'tactic': 238768128.0, 'ground': 200.0})
@@ -176,6 +184,7 @@ class TacticalModel:
         for b in battles:
             print b
         print "I've seen", len(battles), "battles"
+
 
 if __name__ == "__main__":
     # serialize?
@@ -199,13 +208,24 @@ if __name__ == "__main__":
     tactics.train(battles)
     print tactics
     ##### TODO remove
-    import matplotlib.pyplot as plt
-    plt.hist(tsaccu,10)
-    plt.show()
-    plt.hist(ts1accu,10)
-    plt.show()
-    plt.hist(ts2accu,10)
-    plt.show()
+    if SHOW_TACTICAL_SCORES:
+        import matplotlib.pyplot as plt
+        plt.hist(tsaccu,10)
+        plt.show()
+        plt.hist(ts1accu,10)
+        plt.show()
+        plt.hist(ts2accu,10)
+        plt.show()
+        s = [0.0 for i in range(len(distrib[0]))]
+        tot = 0.0
+        for d in distrib:
+            for i,e in enumerate(d):
+                s[i] += e
+                tot += e
+        m = [s[i]/tot for i in range(len(distrib[0]))]
+        x = [i for i in range(len(distrib[0]))]
+        plt.bar(x, m)
+        plt.show()
     ##### /TODO remove
 
 
