@@ -75,6 +75,13 @@ military_set = set(['Terran Marine', 'Terran Ghost', 'Terran Vulture', 'Terran G
         'Protoss Shuttle',
         'Zerg Overlord'])
 
+flying_set = set(['Terran Wraith', 'Terran Science Vessel', 'Terran Battlecruiser', 'Terran Valkyrie',
+        'Protoss Observer', 'Protoss Arbiter', 'Protoss Carrier', 'Protoss Scout', 'Protoss Corsair',
+        'Zerg Devourer', 'Zerg Guardian', 'Zerg Queen', 'Zerg Mutalisk', 'Zerg Scourge',
+        'Terran Dropship',
+        'Protoss Shuttle',
+        'Zerg Overlord'])
+
 def score_unit(unit):
     return unit_min_price.get(unit, 0) + (4.0/3)*unit_gas_price.get(unit, 0) + 25*unit_double_pop.get(unit, 0)
 

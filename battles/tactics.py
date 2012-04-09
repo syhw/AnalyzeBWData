@@ -16,11 +16,13 @@ TACT_PARAM = 1.6 # power of the distance of units to/from regions
 # 1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
 ##### TODO remove
-SHOW_TACTICAL_SCORES = True
+SHOW_TACTICAL_SCORES = False
+SHOW_ECO_SCORES = False
 ts1accu = []
 ts2accu = []
 tsaccu = []
 distrib = []
+esaccu = []
 ##### /TODO remove
 
 def army(state, player):
@@ -67,8 +69,8 @@ def compute_tactical_score(state, player, dm, r, t='Reg'):
 
 def belong_distrib(r, defender, attacker, st, dm, t='Reg'):
     """ tells how much a base belongs to the defender """
-    # Current version is a "max", because r is can be a CDR or a Reg. 
-    # see also data_tools.parse_attacks. TODO
+    # Current version is a "max", because r can be a CDR or a Reg. 
+    # see also data_tools.parse_attacks.
     def positive(x):
         return x >= 0.0
     l_da = filter(positive, [dm.dist(r, rb, t) for rb in st.players_bases[attacker][t]])
@@ -79,13 +81,66 @@ def belong_distrib(r, defender, attacker, st, dm, t='Reg'):
     dd = 100000000000
     if l_dd != []:
         dd = min(l_dd)
-    if dd <= 0.0 and da <= 0.0:
-        return {False: 0.5, True: 0.5}
-    elif dd < da:
-        return {False: 0.5*dd/da, True: 1.0 - 0.5*dd/da}
-    else:
-        return {False: 1.0 - 0.5*da/dd, True: 0.5*da/dd}
+    # indice values: 0 for False and 1 for True
+    if dd <= 0.0 and da <= 0.0: # really contested region
+        return {0: 0.5, 1: 0.5}
+    elif dd < da: # distance to defenser's base is closer (can be a def's base)
+        return {0: 0.5*dd/da, 1: 1.0 - 0.5*dd/da}
+    else: # distance to attacker's base is closer (can be an attacker's base)
+        return {0: 1.0 - 0.5*da/dd, 1: 0.5*da/dd}
 
+def where_bins(s, bins):
+    ind = 0
+    for i,v in enumerate(bins):
+        if s > v:
+            ind = i
+        else:
+            return ind
+    return ind # defensive prog
+
+def tactic_distrib(score):
+    # TODO revise distrib into true distrib?
+    bins = [0.0, 0.9651523609362167, 0.9760342259222318, 0.9824477540926082, 0.9879026329442978, 1.0] # equitable repartition of # of attacks in 5 bins
+    d = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0}
+    d[where_bins(score, bins)] = 1.0
+    return d
+
+def eco_distrib(score):
+    # TODO revise distrib into true distrib?
+    bins = [0.0, 0.05, 0.66, 1.0] # no eco, small eco, more than 2/3rd of total
+    d = {0: 0.0, 1: 0.0, 2: 0.0}
+    d[where_bins(score, bins)] = 1.0
+    return d
+
+def score_units_criterium(units, s, f):
+    sc = 0.0
+    for u in units:
+        if f(u, s):
+            sc += unit_types.score_unit(u)
+    return sc
+
+def score_air(units):
+    return score_units_criterium(units, unit_types.flying_set,
+            lambda x,y: x in y)
+
+def score_ground(units):
+    return score_units_criterium(units, unit_types.flying_set,
+            lambda x,y: x not in y)
+
+def detect_distrib(score):
+    # TODO revise distrib into true distrib?
+    bins = [0.0, 0.99, 1.99, 100000.0] # none, one, many
+    d = {0: 0.0, 1: 0.0, 2: 0.0}
+    d[where_bins(score, bins)] = 1.0
+    return d
+
+def units_distrib(score): # score is given relative to attackers force
+    # TODO revise distrib into true distrib?
+    bins = [0.0, 0.05, 0.5, 1.0e80] # no defense (20x smaller than attacker)
+    #small defense (up to 2x smaller than attacker's force), >2x => big defense
+    d = {0: 0.0, 1: 0.0, 2: 0.0}
+    d[where_bins(score, bins)] = 1.0
+    return d
 
 def extract_tactics_battles(fname, dm, pm=None):
     def detect_attacker(defender, d):
@@ -112,7 +167,7 @@ def extract_tactics_battles(fname, dm, pm=None):
             b1 = belong_distrib(cdr, defender, attacker, st, dm, t='CDR')
             b2 = belong_distrib(reg, defender, attacker, st, dm, t='Reg')
             # pick the max score of "this region belongs to the defender"
-            if b1[True] > b2[True]:
+            if b1[1] > b2[1]:
                 tmp[2]['belong'] = b1
             else:
                 tmp[2]['belong'] = b2
@@ -126,8 +181,14 @@ def extract_tactics_battles(fname, dm, pm=None):
                 ts1accu.append(ts1)
                 ts2accu.append(ts2)
                 tsaccu.append(tmp[2]['tactic'])
+            if SHOW_ECO_SCORES:
+                esaccu.append(tmp[2]['eco'])
             ##### /TODO remove
-            
+            tmp[2]['tactic'] = tactic_distrib(tmp[2]['tactic'])
+            tmp[2]['eco'] = eco_distrib(tmp[2]['eco'])
+            tmp[2]['detect'] = detect_distrib(tmp[2]['detect'])
+            tmp[2]['air'] = units_distrib(tmp[2]['air'] / (0.1+score_air(units[0][attacker])))
+            tmp[2]['ground'] = units_distrib(tmp[2]['ground'] / (0.1+score_ground(units[0][attacker])))
             battles.append((tmp[0], tmp[2]))
     return battles
 
@@ -135,8 +196,8 @@ class TacticalModel:
     """
     For all region r we have:
         A (Attack) in true/false
-        EI (Economical importance) in [0..1] for the player considered
-        TI (Tactical importance) in [0..1] for the player considered
+        EI (Economical importance) in {0, 1, 2} for the player considered
+        TI (Tactical importance) in {0, 1, 2, 3, 4} for the player considered
         B (Belongs) in {True/False} for the player considered
             # P(A, EI, TI, B) = P(EI|A)P(TI|A)P(B|A)P(A)
         ==> P(A, EI, TI, B) = P(EI)P(TI)P(B)P(A | EI, TI, B)
@@ -159,33 +220,50 @@ class TacticalModel:
         P(A/G/ID=2) = 1.0 iff r has more than one half the score of the assaillant
                               on a given attack type
     """
+
     def __init__(self):
         # Atrue_knowing_EI_TI_B[ei][ti][b] = proba
-        self.Atrue_knowing_EI_TI_B = np.ndarray(shape=(10,10,3), dtype='float')
+        self.Atrue_knowing_EI_TI_B = np.ndarray(shape=(3,5,2), dtype='float')
         self.Atrue_knowing_EI_TI_B.fill(ADD_SMOOTH)
         # H_knowing_AD_GD_ID[ground/air/drop/invis][ad][gd][id] = proba
         self.H_knowing_AD_GD_ID = np.ndarray(shape=(4,3,3,3), dtype='float')
         self.H_knowing_AD_GD_ID.fill(ADD_SMOOTH)
+
     def __repr__(self):
-        print "*** P(A=true | EI, TI, B) ***"
-        print self.Atrue_knowing_EI_TI_B
-        print "*** P(H | AD, GD, ID) ***"
-        print self.H_knowing_AD_GD_ID
+        s = "*** P(A=true | EI, TI, B) ***\n"
+        s += self.Atrue_knowing_EI_TI_B.__repr__() + '\n'
+        s += "*** P(H | AD, GD, ID) ***\n"
+        s += self.H_knowing_AD_GD_ID.__repr__()
+        return s
+
     def train(self, battles):
         """
-        (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 1.0, True: 0.0}, 'air': 0.0, 'tactic': 238768128.0, 'ground': 200.0})
-        (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.0949367088607595, True: 0.9050632911392404}, 'air': 583.3333, 'tactic': 348216770.56, 'ground': 1183.3333})
-        ([], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.0949367088607595, True: 0.9050632911392404}, 'air': 583.3333, 'tactic': 422453411.84, 'ground': 583.3333})
-        (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.0949367088607595, True: 0.9050632911392404}, 'air': 0.0, 'tactic': 348216770.56, 'ground': 1200.0})
-        (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.0949367088607595, True: 0.9050632911392404}, 'air': 0.0, 'tactic': 349539205.12, 'ground': 1500.0})
-        (['GroundAttack'], {'detect': 0.0, 'eco': 0.3, 'belong': {False: 0.0, True: 1.0}, 'air': 2916.6667, 'tactic': 505865584.64, 'ground': 4131.6667})
-        (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.9160789844851904, True: 0.08392101551480959}, 'air': 0.0, 'tactic': 172366888.96, 'ground': 200.0})
-        (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.2724373576309795, True: 0.7275626423690205}, 'air': 1458.3333, 'tactic': 217653329.92, 'ground': 1858.3333})
-        (['GroundAttack'], {'detect': 1.0, 'eco': 0.0, 'belong': {False: 0.0, True: 1.0}, 'air': 2041.6667, 'tactic': 315149639.68, 'ground': 2141.6667})
-        (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.46119324181626187, True: 0.5388067581837381}, 'air': 3500.0, 'tactic': 260198359.04, 'ground': 3600.0})
+        fills Atrue_knowing_EI_TI_B and H_knowing_AD_GD_ID according to battles
         """
-        #for b in battles:
-        #    for attack_type in b[0]:
+        def attack_type_to_ind(at):
+            if at == 'GroundAttack':
+                return 0
+            elif at == 'AirAttack':
+                return 1
+            elif at == 'DropAttack':
+                return 2
+            elif at == 'InvisAttack':
+                return 3
+            else:
+                print "Not a good attack type label"
+                raise TypeError
+
+        for b in battles:
+            #print b
+            for keco,veco in b[1]['eco'].iteritems():
+                for ktac,vtac in b[1]['tactic'].iteritems():
+                    for kbel,vbel in b[1]['belong'].iteritems():
+                        self.Atrue_knowing_EI_TI_B[keco, ktac, kbel] += veco*vtac*vbel
+            for attack_type in b[0]:
+                for kair,vair in b[1]['air'].iteritems():
+                    for kground,vground in b[1]['ground'].iteritems():
+                        for kdetect,vdetect in b[1]['detect'].iteritems():
+                            self.H_knowing_AD_GD_ID[attack_type_to_ind(attack_type), kair, kground, kdetect] += vair*vground*vdetect
         print "I've seen", len(battles), "battles"
 
 
@@ -209,10 +287,10 @@ if __name__ == "__main__":
         battles.extend(extract_tactics_battles(fname, dm, pm))
     tactics = TacticalModel()
     tactics.train(battles)
-    #print tactics
+    print tactics
     ##### TODO remove
+    import matplotlib.pyplot as plt
     if SHOW_TACTICAL_SCORES:
-        import matplotlib.pyplot as plt
         plt.hist(tsaccu,10)
         plt.show()
         plt.hist(ts1accu,10)
@@ -229,6 +307,26 @@ if __name__ == "__main__":
         x = [i for i in range(len(distrib[0]))]
         plt.bar(x, m)
         plt.show()
+        n, bins, patches = plt.hist(tsaccu, 5)#, log=True)
+        plt.show()
+        print bins
+        tsaccu.sort()
+        bins = [0.0, tsaccu[len(tsaccu)/5], tsaccu[2*len(tsaccu)/5], tsaccu[3*len(tsaccu)/5], tsaccu[4*len(tsaccu)/5], 1.0]
+        plt.hist(tsaccu, bins)
+        plt.show()
+        print bins
+    if SHOW_ECO_SCORES:
+        n, bins, patches = plt.hist(esaccu, 3, log=True)
+        plt.show()
+        print bins
+        esaccu.sort()
+        while esaccu.count(0.0):
+            esaccu.remove(0.0)
+        first_val = filter(lambda x: x>0.05, esaccu)[0]
+        bins = [first_val, esaccu[len(esaccu)/2], 1.0]
+        plt.hist(esaccu, bins)
+        plt.show()
+        print [0.0] + bins
     ##### /TODO remove
 
 
