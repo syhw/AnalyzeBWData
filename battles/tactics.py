@@ -35,12 +35,12 @@ def compute_tactical_distrib(state, player, dm, r, t='Reg'):
     """ 
     Computes the tactical score of Reg/CDR 'r', according to 'state'
     and for 'player' ('dm' is the distance map and 't' the type of 'r'):
-    tactical_score[reg] = \sum_{unit}[score[unit]*dist(unit,reg)^TACT_PARAM]
-    normalized (between 0.0 and 1.0), the lower the better 
-    (lower <=> closer to the mean square of the army)
+    1.0 - tactical_score[reg] = 
+        \sum_{unit}[score[unit]*dist(unit,reg)^TACT_PARAM] (normalized)
+    Higher = better (higher <=> closer to the mean square of the army)
     """
     # TODO review this heuristic
-    tot = 0.00001
+    tot = 0.00000000001
     a = army(state, player)
     s = {}
     ref = dm.dist_Reg
@@ -59,11 +59,11 @@ def compute_tactical_distrib(state, player, dm, r, t='Reg'):
     if SHOW_TACTICAL_SCORES:
         tmp = []
         for k,v in s.iteritems():
-            tmp.append(v)
+            tmp.append(1.0 - v)
         tmp.sort()
         distrib.append(tmp[:12])
     ##### /TODO remove
-    return s[r]/tot
+    return 1.0 - s[r]/tot
 
 def extract_tactics_battles(fname, dm, pm=None):
     def detect_attacker(defender, d):
@@ -125,6 +125,7 @@ def extract_tactics_battles(fname, dm, pm=None):
                 ts2accu.append(ts2)
                 tsaccu.append(tmp[2]['tactic'])
             ##### /TODO remove
+            
             battles.append((tmp[0], tmp[2]))
     return battles
 
@@ -132,8 +133,8 @@ class TacticalModel:
     """
     For all region r we have:
         A (Attack) in true/false
-        EI (Economical importance) in [[0..9]] for the player considered
-        TI (Tactical importance) in [[0..9]] for the player considered
+        EI (Economical importance) in [0..1] for the player considered
+        TI (Tactical importance) in [0..1] for the player considered
         B (Belongs) in {True/False} for the player considered
             # P(A, EI, TI, B) = P(EI|A)P(TI|A)P(B|A)P(A)
         ==> P(A, EI, TI, B) = P(EI)P(TI)P(B)P(A | EI, TI, B)
@@ -144,9 +145,9 @@ class TacticalModel:
         ex.: P(B=True) = 0.5 in the middle of the map
 
         H (How) in {Ground, Air, Drop, Invisible}
-        AD (Air defense) in {0, 1, 2}
-        GD (Ground defense) in {0, 1, 2}
-        ID (Invisible defense = detectors) in {0, 1, 2}
+        AD (Air defense) in {0, 1, 2} (0: no defense, 1: light defense compared
+        GD (Ground defense) in {0, 1, 2}  ..to the attacker, 2: heavy defense)
+        ID (Invisible defense = #detectors) in {0, 1, 2+}
             # P(H, AD, GD, ID) = P(AD|H)P(GD|H)P(ID|H)P(H)
         ==> P(H, AD, GD, ID) = P(AD)P(GD)P(ID)P(H | AD, GD, ID)
         ?: P(H) = sum_{AD}[P(AD) sum_{GD}[P(GD) sum_{ID}[P(ID)P(H | AD, GD, ID)]]]
@@ -181,8 +182,8 @@ class TacticalModel:
         (['GroundAttack'], {'detect': 1.0, 'eco': 0.0, 'belong': {False: 0.0, True: 1.0}, 'air': 2041.6667, 'tactic': 315149639.68, 'ground': 2141.6667})
         (['GroundAttack'], {'detect': 0.0, 'eco': 0.0, 'belong': {False: 0.46119324181626187, True: 0.5388067581837381}, 'air': 3500.0, 'tactic': 260198359.04, 'ground': 3600.0})
         """
-        for b in battles:
-            print b
+        #for b in battles:
+        #    for attack_type in b[0]:
         print "I've seen", len(battles), "battles"
 
 
