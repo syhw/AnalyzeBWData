@@ -31,7 +31,7 @@ def army(state, player):
             a.append(unit)
     return a
 
-def compute_tactical_distrib(state, player, dm, r, t='Reg'):
+def compute_tactical_score(state, player, dm, r, t='Reg'):
     """ 
     Computes the tactical score of Reg/CDR 'r', according to 'state'
     and for 'player' ('dm' is the distance map and 't' the type of 'r'):
@@ -61,35 +61,37 @@ def compute_tactical_distrib(state, player, dm, r, t='Reg'):
         for k,v in s.iteritems():
             tmp.append(1.0 - v)
         tmp.sort()
-        distrib.append(tmp[:12])
+        distrib.append(tmp[-12:])
     ##### /TODO remove
     return 1.0 - s[r]/tot
+
+def belong_distrib(r, defender, attacker, st, dm, t='Reg'):
+    """ tells how much a base belongs to the defender """
+    # Current version is a "max", because r is can be a CDR or a Reg. 
+    # see also data_tools.parse_attacks. TODO
+    def positive(x):
+        return x >= 0.0
+    l_da = filter(positive, [dm.dist(r, rb, t) for rb in st.players_bases[attacker][t]])
+    da = 100000000000
+    if l_da != []:
+        da = min(l_da)
+    l_dd = filter(positive, [dm.dist(r, rb, t) for rb in st.players_bases[defender][t]])
+    dd = 100000000000
+    if l_dd != []:
+        dd = min(l_dd)
+    if dd <= 0.0 and da <= 0.0:
+        return {False: 0.5, True: 0.5}
+    elif dd < da:
+        return {False: 0.5*dd/da, True: 1.0 - 0.5*dd/da}
+    else:
+        return {False: 1.0 - 0.5*da/dd, True: 0.5*da/dd}
+
 
 def extract_tactics_battles(fname, dm, pm=None):
     def detect_attacker(defender, d):
         for k in d:
             if k != defender:
                 return k
-    def belong(r, defender, attacker, st, dist, t='Reg'):
-        """ tells how much a base belongs to the defender """
-        # Current version is a "max", because r is can be a CDR or a Reg. 
-        # see also data_tools.parse_attacks. TODO
-        def positive(x):
-            return x >= 0.0
-        l_da = filter(positive, [dist.dist(r, rb, t) for rb in st.players_bases[attacker][t]])
-        da = 100000000000
-        if l_da != []:
-            da = min(l_da)
-        l_dd = filter(positive, [dist.dist(r, rb, t) for rb in st.players_bases[defender][t]])
-        dd = 100000000000
-        if l_dd != []:
-            dd = min(l_dd)
-        if dd <= 0.0 and da <= 0.0:
-            return {False: 0.5, True: 0.5}
-        elif dd < da:
-            return {False: 0.5*dd/da, True: 1.0 - 0.5*dd/da}
-        else:
-            return {False: 1.0 - 0.5*da/dd, True: 0.5*da/dd}
     obs = attack_tools.Observers()
     st = state_tools.GameState()
     st.track_loc(open(fname[:-3]+'rld'))
@@ -107,8 +109,8 @@ def extract_tactics_battles(fname, dm, pm=None):
             units = obs.heuristics_remove_observers(units)
             defender = line.split(',')[1]
             attacker = detect_attacker(defender, units[0])
-            b1 = belong(cdr, defender, attacker, st, dm, t='CDR')
-            b2 = belong(reg, defender, attacker, st, dm, t='Reg')
+            b1 = belong_distrib(cdr, defender, attacker, st, dm, t='CDR')
+            b2 = belong_distrib(reg, defender, attacker, st, dm, t='Reg')
             # pick the max score of "this region belongs to the defender"
             if b1[True] > b2[True]:
                 tmp[2]['belong'] = b1
@@ -116,8 +118,8 @@ def extract_tactics_battles(fname, dm, pm=None):
                 tmp[2]['belong'] = b2
             # use an alternative tactical score: mean ground (pathfinding)
             # distance of the region to the defender's army
-            ts1 = compute_tactical_distrib(st, defender, dm, cdr, t='CDR')
-            ts2 = compute_tactical_distrib(st, defender, dm, reg, t='Reg')
+            ts1 = compute_tactical_score(st, defender, dm, cdr, t='CDR')
+            ts2 = compute_tactical_score(st, defender, dm, reg, t='Reg')
             tmp[2]['tactic'] = max(ts1, ts2)
             ##### TODO remove
             if SHOW_TACTICAL_SCORES:
@@ -207,7 +209,7 @@ if __name__ == "__main__":
         battles.extend(extract_tactics_battles(fname, dm, pm))
     tactics = TacticalModel()
     tactics.train(battles)
-    print tactics
+    #print tactics
     ##### TODO remove
     if SHOW_TACTICAL_SCORES:
         import matplotlib.pyplot as plt
