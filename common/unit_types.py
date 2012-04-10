@@ -1,3 +1,5 @@
+from common.common_tools import memoize
+
 drop = ['Terran Dropship',
             'Protoss Shuttle',
             'Zerg Overlord']
@@ -82,6 +84,7 @@ flying_set = set(['Terran Wraith', 'Terran Science Vessel', 'Terran Battlecruise
         'Protoss Shuttle',
         'Zerg Overlord'])
 
+@memoize
 def score_unit(unit):
     return unit_min_price.get(unit, 0) + (4.0/3)*unit_gas_price.get(unit, 0) + 25*unit_double_pop.get(unit, 0)
 
