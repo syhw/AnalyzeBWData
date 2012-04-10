@@ -255,15 +255,23 @@ class TacticalModel:
 
         for b in battles:
             #print b
+            s = 0.0
             for keco,veco in b[1]['eco'].iteritems():
                 for ktac,vtac in b[1]['tactic'].iteritems():
                     for kbel,vbel in b[1]['belong'].iteritems():
-                        self.Atrue_knowing_EI_TI_B[keco, ktac, kbel] += veco*vtac*vbel
+                        tmp = veco*vtac*vbel
+                        self.Atrue_knowing_EI_TI_B[keco, ktac, kbel] += tmp 
+                        s += tmp
+            self.Atrue_knowing_EI_TI_B /= s
+            s = 0.0
             for attack_type in b[0]:
                 for kair,vair in b[1]['air'].iteritems():
                     for kground,vground in b[1]['ground'].iteritems():
                         for kdetect,vdetect in b[1]['detect'].iteritems():
-                            self.H_knowing_AD_GD_ID[attack_type_to_ind(attack_type), kair, kground, kdetect] += vair*vground*vdetect
+                            tmp = vair*vground*vdetect
+                            self.H_knowing_AD_GD_ID[attack_type_to_ind(attack_type), kair, kground, kdetect] += tmp 
+                            s += tmp
+            self.H_knowing_AD_GD_ID /= s
         print "I've seen", len(battles), "battles"
 
 
