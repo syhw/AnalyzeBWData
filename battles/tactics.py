@@ -282,6 +282,7 @@ if __name__ == "__main__":
         dm = DistancesMaps(floc)
         floc.close()
         floc = open(fname[:-3]+'rld')
+        print fname
         pm = PositionMapper(floc)
         players_races = data_tools.players_races(f)
         battles.extend(extract_tactics_battles(fname, dm, pm))

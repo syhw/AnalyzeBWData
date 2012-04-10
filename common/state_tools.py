@@ -20,6 +20,7 @@ class GameState:
     tracked_units/remove/add could be refactored: tracked_u[uid] = Unit(uid,...
     """
     def __init__(self):
+        self.players_races = {} # races[player] in {'P', 'T', 'Z'}
         self.players_bases = {} # bases[player]['CDR'/'Reg'] = {where: number}
         self.floc = None
         self.last_loc_frame = -1
@@ -29,6 +30,13 @@ class GameState:
     def created(self, line):
         l = line.split(',')
         uid = int(l[3])
+        if not l[1] in self.players_races:
+            if 'Protoss' in line:
+                self.players_races[l[1]] = 'P'
+            elif 'Terran' in line:
+                self.players_races[l[1]] = 'T'
+            elif 'Zerg' in line:
+                self.players_races[l[1]] = 'Z'
         if len(l) < 9:
             self.tracked_units[uid] = Unit(uid, l[4], l[1])
         else:
@@ -49,13 +57,13 @@ class GameState:
         else:
             self.tracked_units[uid] = Unit(uid, l[4], l[1], 
                     int(l[-2]), int(l[-1]))
-        if 'Zerg Hatchery' in line:
+        if 'Zerg Hatchery' in line: #or 'Zerg Lair' in line or 'Zerg Hive' in line:
             self.add_base(self.tracked_units[uid])
 
     def destroyed(self, line):
         l = line.split(',')
         u = self.tracked_units.pop(int(l[3]))
-        if 'Terran Command Center' in line or 'Protoss Nexus' in line or 'Zerg Hatchery' in line:
+        if 'Terran Command Center' in line or 'Protoss Nexus' in line or 'Zerg Hatchery' in line or 'Zerg Lair' in line or 'Zerg Hive' in line:
             self.remove_base(u)
 
     def remove_base(self, u):
@@ -80,7 +88,8 @@ class GameState:
         tmp['Reg'][u.Reg] = tmp['Reg'].get(u.Reg, 0) + 1
 
     def update_loc(self, uid, r, t='Reg'):
-        if uid in self.base_uid:
+        if uid in self.base_uid and self.players_races[self.tracked_units[uid].player] == 'T':
+            # we want only moving CC to be removed as base
             self.remove_base(self.tracked_units[uid])
         if t == 'Reg':
             self.tracked_units[uid].Reg = r
@@ -90,6 +99,7 @@ class GameState:
             print "TYPE ERROR"
             return "TYPE ERROR"
         if 'Terran Command Center' in self.tracked_units[uid].name:
+            # it should be when it lands...
             self.add_base(self.tracked_units[uid])
 
     def update(self , l):
