@@ -106,4 +106,10 @@ class DistancesMaps:
         else:
             print "TYPE ERROR"
             return "TYPE ERROR"
+    def list_regions(self, t='Reg'):
+        if t == 'Reg':
+            return self.dist_Reg.iterkeys()
+        else:
+            return self.dist_CDR.iterkeys()
+
     

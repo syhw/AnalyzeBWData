@@ -1,8 +1,8 @@
 from common.common_tools import memoize
 
 drop = ['Terran Dropship',
-            'Protoss Shuttle',
-            'Zerg Overlord']
+        'Protoss Shuttle',
+        'Zerg Overlord']
 
 military = [['Terran Marine', 'Terran Ghost', 'Terran Vulture', 'Terran Goliath', 'Terran Siege Tank Tank Mode', 'Terran Wraith', 'Terran Science Vessel', 'Terran Battlecruiser', 'Terran Siege Tank Siege Mode', 'Terran Firebat', 'Terran Medic', 'Terran Valkyrie' ], 
         ['Protoss Observer', 'Protoss Dragoon', 'Protoss Zealot', 'Protoss Archon', 'Protoss Reaver', 'Protoss High Templar', 'Protoss Arbiter', 'Protoss Carrier', 'Protoss Scout', 'Protoss Dark Archon', 'Protoss Corsair', 'Protoss Dark Templar'], 
@@ -70,12 +70,10 @@ unit_gas_price = {
 'Protoss Observer' : 75, 'Protoss Dragoon' : 50, 'Protoss Archon' : 300, 'Protoss Reaver' : 100, 'Protoss High Templar' : 150, 'Protoss Arbiter' : 350, 'Protoss Carrier' : 250, 'Protoss Scout' : 125, 'Protoss Dark Archon' : 200, 'Protoss Corsair' : 100, 'Protoss Dark Templar' : 100, 'Zerg Devourer' : 150, 'Zerg Guardian' : 200, 'Zerg Ultralisk' : 200, 'Zerg Queen' : 100, 'Zerg Hydralisk' : 25, 'Zerg Mutalisk' : 100, 'Zerg Scourge' : 38, 'Zerg Lurker' : 125, 'Zerg Defiler' : 150, 'Zerg Infested Terran' : 50
 }
 
-military_set = set(['Terran Marine', 'Terran Ghost', 'Terran Vulture', 'Terran Goliath', 'Terran Siege Tank Tank Mode', 'Terran Wraith', 'Terran Science Vessel', 'Terran Battlecruiser', 'Terran Siege Tank Siege Mode', 'Terran Firebat', 'Terran Medic', 'Terran Valkyrie', 
-        'Protoss Observer', 'Protoss Dragoon', 'Protoss Zealot', 'Protoss Archon', 'Protoss Reaver', 'Protoss High Templar', 'Protoss Arbiter', 'Protoss Carrier', 'Protoss Scout', 'Protoss Dark Archon', 'Protoss Corsair', 'Protoss Dark Templar', 
-        'Zerg Zergling', 'Zerg Devourer', 'Zerg Guardian', 'Zerg Ultralisk', 'Zerg Queen', 'Zerg Hydralisk', 'Zerg Mutalisk', 'Zerg Scourge', 'Zerg Lurker', 'Zerg Defiler',
-        'Terran Dropship',
-        'Protoss Shuttle',
-        'Zerg Overlord'])
+military_set = set(drop)
+for l in military:
+    military_set.update(l)
+military_set.update(['Terran Missile Turret', 'Terran Bunker', 'Protoss Photon Cannon', 'Protoss Shield Battery', 'Zerg Sunken Colony', 'Zerg Spore Colony'])
 
 flying_set = set(['Terran Wraith', 'Terran Science Vessel', 'Terran Battlecruiser', 'Terran Valkyrie',
         'Protoss Observer', 'Protoss Arbiter', 'Protoss Carrier', 'Protoss Scout', 'Protoss Corsair',
@@ -83,6 +81,14 @@ flying_set = set(['Terran Wraith', 'Terran Science Vessel', 'Terran Battlecruise
         'Terran Dropship',
         'Protoss Shuttle',
         'Zerg Overlord'])
+
+shoot_up_set = set(['Terran Marine', 'Terran Ghost', 'Terran Goliath', 'Terran Wraith', 'Terran Science Vessel', 'Terran Battlecruiser', 'Terran Medic', 'Terran Valkyrie', 'Terran Missile Turret', 'Terran Bunker', 
+        'Protoss Observer', 'Protoss Dragoon', 'Protoss Archon', 'Protoss High Templar', 'Protoss Arbiter', 'Protoss Carrier', 'Protoss Scout', 'Protoss Dark Archon', 'Protoss Corsair', 'Protoss Photon Cannon', 'Protoss Shield Battery',
+        'Zerg Devourer', 'Zerg Queen', 'Zerg Hydralisk', 'Zerg Mutalisk', 'Zerg Scourge', 'Zerg Defiler', 'Zerg Spore Colony'])
+
+dont_shoot_down_set = set(['Terran Valkyrie', 'Terran Missile Turret', 'Protoss Corsair', 'Zerg Devourer', 'Zerg Scourge', 'Zerg Spore Colony'])
+
+detectors_set = set(['Terran Science Vessel', 'Terran Missile Turret', 'Protoss Observer', 'Protoss Photon Cannon', 'Zerg Overlord', 'Zerg Spore Colony'])
 
 @memoize
 def score_unit(unit):

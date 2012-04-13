@@ -11,8 +11,11 @@ except:
     print "you need numpy"
     sys.exit(-1)
 
+testing = True
+
 ADD_SMOOTH = 1.0 # Laplace smoothing, could be less
 TACT_PARAM = 1.6 # power of the distance of units to/from regions
+NUMBER_OF_TEST_GAMES = 20 # number of games to evaluates the tactical model on
 # 1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
 ##### TODO remove
@@ -33,21 +36,45 @@ def army(state, player):
             a.append(unit)
     return a
 
-def compute_tactical_score(state, player, dm, r, t='Reg'):
-    """ 
-    Computes the tactical score of Reg/CDR 'r', according to 'state'
-    and for 'player' ('dm' is the distance map and 't' the type of 'r'):
-    1.0 - tactical_score[reg] = 
-        \sum_{unit}[score[unit]*dist(unit,reg)^TACT_PARAM] (normalized)
-    Higher = better (higher <=> closer to the mean square of the army)
-    """
-    # TODO review this heuristic
-    tot = 0.00000000001
-    a = army(state, player)
-    s = {}
+def workers(state, player):
+    """ In the given 'state', returns the workers of the 'player' """
+    w = []
+    for uid, unit in state.tracked_units.iteritems():
+        if unit.player == player and unit.name in unit_types.workers:
+            w.append(unit)
+    return w
+
+def detectors(state, player):
+    """ In the given 'state', returns the detectors of the 'player' """
+    d = []
+    for uid, unit in state.tracked_units.iteritems():
+        if unit.player == player and unit.name in unit_types.detectors_set:
+            d.append(unit)
+    return d
+
+def compute_detect_scores(state, player, dm, t='Reg'):
+    """ returns the number of detectors in each regions of type t """
     ref = dm.dist_Reg
     if t == 'CDR':
         ref = dm.dist_CDR
+    s = {}
+    d = detectors(state, player)
+    for tmpr in ref:
+        s[tmpr] = 0.0
+        for unit in d:
+            if unit[t] == tmpr:
+                s[tmpr] += 1.0
+    return s
+
+def compute_tactical_scores(state, player, dm, t='Reg'):
+    """ computes the tactical scores of all regions of type t and returns 
+    (scores_dict, total) """
+    ref = dm.dist_Reg
+    if t == 'CDR':
+        ref = dm.dist_CDR
+    s = {}
+    tot = 0.00000000001
+    a = army(state, player)
     for tmpr in ref:
         s[tmpr] = 0.0
         for unit in a:
@@ -57,6 +84,18 @@ def compute_tactical_score(state, player, dm, r, t='Reg'):
             else:
                 s[tmpr] += unit_types.score_unit(unit.name)*(dm.max_dist**TACT_PARAM)
         tot += s[tmpr]
+    return (s, tot)
+
+def compute_tactical_score(state, player, dm, r, t='Reg'):
+    """ 
+    Computes the tactical score of Reg/CDR 'r', according to 'state'
+    and for 'player' ('dm' is the distance map and 't' the type of 'r'):
+    1.0 - tactical_score[reg] = 
+        \sum_{unit}[score[unit]*dist(unit,reg)^TACT_PARAM] (normalized)
+    Higher = better (higher <=> closer to the mean square of the army)
+    """
+    # TODO review this heuristic
+    s, tot = compute_tactical_scores(state, player, dm, t)
     ##### TODO remove
     if SHOW_TACTICAL_SCORES:
         tmp = []
@@ -66,6 +105,23 @@ def compute_tactical_score(state, player, dm, r, t='Reg'):
         distrib.append(tmp[-12:])
     ##### /TODO remove
     return 1.0 - s[r]/tot
+
+def compute_eco_scores(state, player, dm, t='Reg'):
+    """ computes the economical scores of all regions of type t and returns 
+    (scores_dict, total) """
+    ref = dm.dist_Reg
+    if t == 'CDR':
+        ref = dm.dist_CDR
+    s = {}
+    tot = 0.00000000001
+    w = workers(state, player)
+    for tmpr in ref:
+        s[tmpr] = 0.0
+        for unit in w:
+            if unit[t] == tmpr:
+                s[tmpr] += 1.0
+        tot += s[tmpr]
+    return (s, tot)
 
 def belong_distrib(r, defender, attacker, st, dm, t='Reg'):
     """ tells how much a base belongs to the defender """
@@ -142,11 +198,17 @@ def units_distrib(score): # score is given relative to attackers force
     d[where_bins(score, bins)] = 1.0
     return d
 
+def detect_attacker(defender, d):
+    for k in d:
+        if k != defender:
+            return k
+
 def extract_tactics_battles(fname, dm, pm=None):
-    def detect_attacker(defender, d):
-        for k in d:
-            if k != defender:
-                return k
+    """ 
+    Extract all attacks and tactics from the file named fname,
+    with the distance map (between regions) dm, and the positional mapper pm
+    returns a list of battles [([types], scoredict, cdr, reg)]
+    """
     obs = attack_tools.Observers()
     st = state_tools.GameState()
     st.track_loc(open(fname[:-3]+'rld'))
@@ -189,8 +251,60 @@ def extract_tactics_battles(fname, dm, pm=None):
             tmp[2]['detect'] = detect_distrib(tmp[2]['detect'])
             tmp[2]['air'] = units_distrib(tmp[2]['air'] / (0.1+score_air(units[0][attacker])))
             tmp[2]['ground'] = units_distrib(tmp[2]['ground'] / (0.1+score_ground(units[0][attacker])))
-            battles.append((tmp[0], tmp[2]))
+            battles.append((tmp[0], tmp[2], cdr, reg))
+            #              (list of types, dict of distribs, CDR, Reg)
     return battles
+
+def extract_tests(fname, dm, pm=None):
+    """
+    Extract tests situations from the file named fname,
+    with the distance map (between regions) dm, and the positional mapper pm
+    returns a list of dicts of regions scores:
+    [{'Reg': {reg: {scores_distribs}}, 'CDR': {cdr: {scores_distribs}}}]
+    """
+    obs = attack_tools.Observers()
+    st = state_tools.GameState()
+    st.track_loc(open(fname[:-3]+'rld'))
+    tests = []
+    f = open(fname)
+    for line in f:
+        line = line.rstrip('\r\n')
+        obs.detect_observers(line)
+        st.update(line)
+        if 'IsAttacked' in line:
+            defender = line.split(',')[1]
+            attacker = detect_attacker(defender, units[0])
+            tmp = {'Reg': {}, 'CDR': {}}
+            for rt in tmp:
+                s, tot = compute_eco_scores(st, defender, dm, t=rt)
+                for k in s:
+                    s[k] = eco_distrib(s[k]/tot)
+                tmp[rt]['eco'] = s
+                s, tot = compute_tactical_scores(st, defender, dm, t=rt)
+                for k in s:
+                    s[k] = tactic_distrib(s[k]/tot)
+                tmp[rt]['tactic'] = s
+                for r in dm.list_regions(rt):
+                    tmp[rt]['belong'][r] = belong_distrib(r, defender, attacker, st, dm, rt)
+                s = compute_detect_scores(st, defender, dm, t=rt)
+                tmp[rt]['detect'] = 
+
+                s_d = compute_units_scores(st, defender, dm, t=rt)
+                s_a = compute_ground_scores(st, defender, dm, t=rt)
+                tmp[rt]['ground'] = 
+
+                tmp[rt]['air'] = 
+            
+
+            tmp[2]['tactic'] = max(ts1, ts2)
+            tmp[2]['tactic'] = tactic_distrib(tmp[2]['tactic'])
+            tmp[2]['eco'] = eco_distrib(tmp[2]['eco'])
+            tmp[2]['detect'] = detect_distrib(tmp[2]['detect'])
+            tmp[2]['air'] = units_distrib(tmp[2]['air'] / (0.1+score_air(units[0][attacker])))
+            tmp[2]['ground'] = units_distrib(tmp[2]['ground'] / (0.1+score_ground(units[0][attacker])))
+
+            tests.append(tmp)
+    return tests
 
 class TacticalModel:
     """
@@ -201,7 +315,7 @@ class TacticalModel:
         B (Belongs) in {True/False} for the player considered
             # P(A, EI, TI, B) = P(EI|A)P(TI|A)P(B|A)P(A)
         ==> P(A, EI, TI, B) = P(EI)P(TI)P(B)P(A | EI, TI, B)
-        ?: P([A=1] | EEI, TI) = sum_B[P([A=1] | EI, TI, B).P(B)]
+        ?: P([A=1] | EI, TI) = sum_B[P([A=1] | EI, TI, B).P(B)]
         P(B=True) = 1.0 iff r si one of the bases of the player considered
         P(B=False) = 1.0 iff r si one of the bases of the ennemy of the player
         P(B=True) prop to min_{base \in players'bases}(dist(r, base))
@@ -253,27 +367,32 @@ class TacticalModel:
                 print "Not a good attack type label"
                 raise TypeError
 
+        sA = 0.0
+        sH = 0.0
         for b in battles:
             #print b
-            s = 0.0
             for keco,veco in b[1]['eco'].iteritems():
                 for ktac,vtac in b[1]['tactic'].iteritems():
                     for kbel,vbel in b[1]['belong'].iteritems():
                         tmp = veco*vtac*vbel
                         self.Atrue_knowing_EI_TI_B[keco, ktac, kbel] += tmp 
-                        s += tmp
-            self.Atrue_knowing_EI_TI_B /= s
-            s = 0.0
+                        sA += tmp
             for attack_type in b[0]:
                 for kair,vair in b[1]['air'].iteritems():
                     for kground,vground in b[1]['ground'].iteritems():
                         for kdetect,vdetect in b[1]['detect'].iteritems():
                             tmp = vair*vground*vdetect
                             self.H_knowing_AD_GD_ID[attack_type_to_ind(attack_type), kair, kground, kdetect] += tmp 
-                            s += tmp
-            self.H_knowing_AD_GD_ID /= s
+                            sH += tmp
+        self.Atrue_knowing_EI_TI_B /= sA
+        self.H_knowing_AD_GD_ID /= sH
         print "I've seen", len(battles), "battles"
 
+    def test(self, tests, results):
+        for i,t in enumerate(tests):
+            results[i] # real battle that happened
+
+            
 
 if __name__ == "__main__":
     # serialize?
@@ -284,18 +403,54 @@ if __name__ == "__main__":
     else:
         fnamelist = sys.argv[1:]
     battles = []
-    for fname in fnamelist:
-        f = open(fname)
-        floc = open(fname[:-3]+'rld')
-        dm = DistancesMaps(floc)
-        floc.close()
-        floc = open(fname[:-3]+'rld')
-        print fname
-        pm = PositionMapper(floc)
-        players_races = data_tools.players_races(f)
-        battles.extend(extract_tactics_battles(fname, dm, pm))
+    tests = []
+    results = []
+    if testing:
+        i = 0
+        learngames = []
+        testgames = []
+        for fname in fnamelist:
+            i += 1
+            if i > NUMBER_OF_TEST_GAMES:
+                learngames.append(fname)
+            else:
+                testgames.append(fname)
+        for fname in learngames:
+            f = open(fname)
+            floc = open(fname[:-3]+'rld')
+            dm = DistancesMaps(floc)
+            floc.close()
+            floc = open(fname[:-3]+'rld')
+            print "training on:", fname
+            pm = PositionMapper(floc)
+            players_races = data_tools.players_races(f)
+            battles.extend(extract_tactics_battles(fname, dm, pm))
+        for fname in testgames:
+            f = open(fname)
+            floc = open(fname[:-3]+'rld')
+            dm = DistancesMaps(floc)
+            floc.close()
+            floc = open(fname[:-3]+'rld')
+            print "testing on:", fname
+            pm = PositionMapper(floc)
+            players_races = data_tools.players_races(f)
+            tests.extend(extract_tests(fname, dm, pm))
+            results.extend(extract_tactics_battles(fname, dm, pm))
+    else:
+        for fname in fnamelist:
+            f = open(fname)
+            floc = open(fname[:-3]+'rld')
+            dm = DistancesMaps(floc)
+            floc.close()
+            floc = open(fname[:-3]+'rld')
+            print fname
+            pm = PositionMapper(floc)
+            players_races = data_tools.players_races(f)
+            battles.extend(extract_tactics_battles(fname, dm, pm))
     tactics = TacticalModel()
     tactics.train(battles)
+    if testing:
+        tactics.test(tests, results)
     print tactics
     ##### TODO remove
     import matplotlib.pyplot as plt
