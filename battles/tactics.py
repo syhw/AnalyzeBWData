@@ -13,9 +13,9 @@ except:
 
 testing = True
 
-ADD_SMOOTH = 1.0 # Laplace smoothing, could be less
+ADD_SMOOTH = 0.5 # Laplace smoothing, could be less
 TACT_PARAM = 1.6 # power of the distance of units to/from regions
-NUMBER_OF_TEST_GAMES = 20 # number of games to evaluates the tactical model on
+NUMBER_OF_TEST_GAMES = 10 # number of games to evaluates the tactical model on
 # 1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
 ##### TODO remove
@@ -28,56 +28,43 @@ distrib = []
 esaccu = []
 ##### /TODO remove
 
+def select(state, player, inset):
+    """ In the given 'state', returns the units in 'inset' of the 'player' """
+    x = []
+    for uid, unit in state.tracked_units.iteritems():
+        if unit.player == player and unit.name in inset:
+            x.append(unit)
+    return x
+
 def army(state, player):
     """ In the given 'state', returns the army (in Unit()) of the 'player' """
-    a = []
-    for uid, unit in state.tracked_units.iteritems():
-        if unit.player == player and unit.name in unit_types.military_set:
-            a.append(unit)
-    return a
+    return select(state, player, unit_types.military_set)
 
-def workers(state, player):
-    """ In the given 'state', returns the workers of the 'player' """
-    w = []
-    for uid, unit in state.tracked_units.iteritems():
-        if unit.player == player and unit.name in unit_types.workers:
-            w.append(unit)
-    return w
-
-def detectors(state, player):
-    """ In the given 'state', returns the detectors of the 'player' """
-    d = []
-    for uid, unit in state.tracked_units.iteritems():
-        if unit.player == player and unit.name in unit_types.detectors_set:
-            d.append(unit)
-    return d
-
-def compute_detect_scores(state, player, dm, t='Reg'):
-    """ returns the number of detectors in each regions of type t """
-    ref = dm.dist_Reg
-    if t == 'CDR':
-        ref = dm.dist_CDR
+def compute_scores(state, player, dm, inset, scoring_f, t='Reg'):
+    """ computes the economical scores of all regions of type t and returns 
+    (scores_dict, total) """
     s = {}
-    d = detectors(state, player)
-    for tmpr in ref:
-        s[tmpr] = 0.0
-        for unit in d:
+    tot = 0.00000000001
+    x = select(state, player, inset)
+    for tmpr in dm.list_regions(t): # yes, it's dumb, but I don't want a sparse dict()
+        s[tmpr] = 0.0               # even though I could get(x, default)...
+        for unit in x:
             if unit[t] == tmpr:
-                s[tmpr] += 1.0
-    return s
+                s[tmpr] += scoring_f(unit)
+        tot += s[tmpr]
+    return (s, tot)
 
 def compute_tactical_scores(state, player, dm, t='Reg'):
     """ computes the tactical scores of all regions of type t and returns 
     (scores_dict, total) """
-    ref = dm.dist_Reg
-    if t == 'CDR':
-        ref = dm.dist_CDR
     s = {}
     tot = 0.00000000001
     a = army(state, player)
-    for tmpr in ref:
+    for tmpr in dm.list_regions(t):
         s[tmpr] = 0.0
         for unit in a:
+            if unit[t] == -1:
+                continue
             d = dm.dist(unit[t], tmpr, t)
             if d > 0.0:
                 s[tmpr] += unit_types.score_unit(unit.name)*(d**TACT_PARAM)
@@ -106,39 +93,22 @@ def compute_tactical_score(state, player, dm, r, t='Reg'):
     ##### /TODO remove
     return 1.0 - s[r]/tot
 
-def compute_eco_scores(state, player, dm, t='Reg'):
-    """ computes the economical scores of all regions of type t and returns 
-    (scores_dict, total) """
-    ref = dm.dist_Reg
-    if t == 'CDR':
-        ref = dm.dist_CDR
-    s = {}
-    tot = 0.00000000001
-    w = workers(state, player)
-    for tmpr in ref:
-        s[tmpr] = 0.0
-        for unit in w:
-            if unit[t] == tmpr:
-                s[tmpr] += 1.0
-        tot += s[tmpr]
-    return (s, tot)
-
 def belong_distrib(r, defender, attacker, st, dm, t='Reg'):
     """ tells how much a base belongs to the defender """
-    # Current version is a "max", because r can be a CDR or a Reg. 
-    # see also data_tools.parse_attacks.
-    def positive(x):
-        return x >= 0.0
-    l_da = filter(positive, [dm.dist(r, rb, t) for rb in st.players_bases[attacker][t]])
+    def make_positive(x):
+        if x < 0.0: # it's an island
+            return 11500.0 # that's 256(max map size)*32(pix/tile)*sqrt(2)
+        return x
+    l_da = map(make_positive, [dm.dist(r, rb, t) for rb in st.players_bases[attacker][t]])
     da = 100000000000
     if l_da != []:
         da = min(l_da)
-    l_dd = filter(positive, [dm.dist(r, rb, t) for rb in st.players_bases[defender][t]])
+    l_dd = map(make_positive, [dm.dist(r, rb, t) for rb in st.players_bases[defender][t]])
     dd = 100000000000
     if l_dd != []:
         dd = min(l_dd)
     # indice values: 0 for False and 1 for True
-    if dd <= 0.0 and da <= 0.0: # really contested region
+    if dd <= 0.0 and da <= 0.0: # really contested region, one base for each or island w/o base!
         return {0: 0.5, 1: 0.5}
     elif dd < da: # distance to defenser's base is closer (can be a def's base)
         return {0: 0.5*dd/da, 1: 1.0 - 0.5*dd/da}
@@ -251,7 +221,7 @@ def extract_tactics_battles(fname, dm, pm=None):
             tmp[2]['detect'] = detect_distrib(tmp[2]['detect'])
             tmp[2]['air'] = units_distrib(tmp[2]['air'] / (0.1+score_air(units[0][attacker])))
             tmp[2]['ground'] = units_distrib(tmp[2]['ground'] / (0.1+score_ground(units[0][attacker])))
-            battles.append((tmp[0], tmp[2], cdr, reg))
+            battles.append((tmp[0], tmp[2], {'Reg': reg, "CDR": cdr}))
             #              (list of types, dict of distribs, CDR, Reg)
     return battles
 
@@ -260,7 +230,7 @@ def extract_tests(fname, dm, pm=None):
     Extract tests situations from the file named fname,
     with the distance map (between regions) dm, and the positional mapper pm
     returns a list of dicts of regions scores:
-    [{'Reg': {reg: {scores_distribs}}, 'CDR': {cdr: {scores_distribs}}}]
+    [{'Reg': {score_type: {reg: distirb}},'CDR': {score_type: {reg: distirb}}}]
     """
     obs = attack_tools.Observers()
     st = state_tools.GameState()
@@ -272,11 +242,13 @@ def extract_tests(fname, dm, pm=None):
         obs.detect_observers(line)
         st.update(line)
         if 'IsAttacked' in line:
+            units = data_tools.parse_dicts(line)
+            units = obs.heuristics_remove_observers(units)
             defender = line.split(',')[1]
             attacker = detect_attacker(defender, units[0])
             tmp = {'Reg': {}, 'CDR': {}}
             for rt in tmp:
-                s, tot = compute_eco_scores(st, defender, dm, t=rt)
+                s, tot = compute_scores(st, defender, dm, unit_types.workers, lambda x: 1.0, t=rt)
                 for k in s:
                     s[k] = eco_distrib(s[k]/tot)
                 tmp[rt]['eco'] = s
@@ -284,25 +256,25 @@ def extract_tests(fname, dm, pm=None):
                 for k in s:
                     s[k] = tactic_distrib(s[k]/tot)
                 tmp[rt]['tactic'] = s
+                tmp[rt]['belong'] = {}
                 for r in dm.list_regions(rt):
                     tmp[rt]['belong'][r] = belong_distrib(r, defender, attacker, st, dm, rt)
-                s = compute_detect_scores(st, defender, dm, t=rt)
-                tmp[rt]['detect'] = 
-
-                s_d = compute_units_scores(st, defender, dm, t=rt)
-                s_a = compute_ground_scores(st, defender, dm, t=rt)
-                tmp[rt]['ground'] = 
-
-                tmp[rt]['air'] = 
-            
-
-            tmp[2]['tactic'] = max(ts1, ts2)
-            tmp[2]['tactic'] = tactic_distrib(tmp[2]['tactic'])
-            tmp[2]['eco'] = eco_distrib(tmp[2]['eco'])
-            tmp[2]['detect'] = detect_distrib(tmp[2]['detect'])
-            tmp[2]['air'] = units_distrib(tmp[2]['air'] / (0.1+score_air(units[0][attacker])))
-            tmp[2]['ground'] = units_distrib(tmp[2]['ground'] / (0.1+score_ground(units[0][attacker])))
-
+                s, tot = compute_scores(st, defender, dm, unit_types.detectors_set, lambda x: 1.0, t=rt)
+                for k in s:
+                    s[k] = detect_distrib(s[k])
+                tmp[rt]['detect'] = s
+                s = {}
+                s_d, tot_d = compute_scores(st, defender, dm, unit_types.shoot_down_set, unit_types.score_unit, t=rt)
+                s_a, tot_a = compute_scores(st, attacker, dm, unit_types.ground_set, unit_types.score_unit, t=rt)
+                for k in s_d:
+                    s[k] = units_distrib(s_d[k] / (0.1 + s_a[k]))
+                tmp[rt]['ground'] = s
+                s = {}
+                s_d, tot_d = compute_scores(st, defender, dm, unit_types.shoot_up_set, unit_types.score_unit, t=rt)
+                s_a, tot_a = compute_scores(st, attacker, dm, unit_types.flying_set, unit_types.score_unit, t=rt)
+                for k in s_d:
+                    s[k] = units_distrib(s_d[k] / (0.1 + s_a[k]))
+                tmp[rt]['air'] = s
             tests.append(tmp)
     return tests
 
@@ -350,23 +322,24 @@ class TacticalModel:
         s += self.H_knowing_AD_GD_ID.__repr__()
         return s
 
+    @staticmethod
+    def attack_type_to_ind(at):
+        if at == 'GroundAttack':
+            return 0
+        elif at == 'AirAttack':
+            return 1
+        elif at == 'DropAttack':
+            return 2
+        elif at == 'InvisAttack':
+            return 3
+        else:
+            print "Not a good attack type label"
+            raise TypeError
+
     def train(self, battles):
         """
         fills Atrue_knowing_EI_TI_B and H_knowing_AD_GD_ID according to battles
         """
-        def attack_type_to_ind(at):
-            if at == 'GroundAttack':
-                return 0
-            elif at == 'AirAttack':
-                return 1
-            elif at == 'DropAttack':
-                return 2
-            elif at == 'InvisAttack':
-                return 3
-            else:
-                print "Not a good attack type label"
-                raise TypeError
-
         sA = 0.0
         sH = 0.0
         for b in battles:
@@ -382,17 +355,69 @@ class TacticalModel:
                     for kground,vground in b[1]['ground'].iteritems():
                         for kdetect,vdetect in b[1]['detect'].iteritems():
                             tmp = vair*vground*vdetect
-                            self.H_knowing_AD_GD_ID[attack_type_to_ind(attack_type), kair, kground, kdetect] += tmp 
+                            self.H_knowing_AD_GD_ID[TacticalModel.attack_type_to_ind(attack_type), kair, kground, kdetect] += tmp 
                             sH += tmp
         self.Atrue_knowing_EI_TI_B /= sA
         self.H_knowing_AD_GD_ID /= sH
         print "I've seen", len(battles), "battles"
 
     def test(self, tests, results):
+        good_where = {'Reg': 0, 'CDR': 0}
+        good_how = {'Reg': 0, 'CDR': 0}
         for i,t in enumerate(tests):
-            results[i] # real battle that happened
+            for rt in t: # region types
+                probabilities_where = {}
+                max_where = -1.0
+                where = 0
+                for r in t[rt]['eco']:
+                    tmp_prob = 0.0
+                    for es in t[rt]['eco'][r]:
+                        for ts in t[rt]['tactic'][r]:
+                            for bs in t[rt]['belong'][r]:
+                                tmp_prob += t[rt]['eco'][r][es] \
+                                        * t[rt]['tactic'][r][ts] \
+                                        * t[rt]['belong'][r][bs] \
+                                        * self.Atrue_knowing_EI_TI_B[es,ts,bs]
+                    probabilities_where[r] = tmp_prob
+                    if tmp_prob > max_where:
+                        max_where = tmp_prob
+                        where = r
+                probabilities_how = {}
+                probabilities_where_how = {}
+                max_where_how = -1.0
+                how = 0
+                where_how = 0
+                for r in t[rt]['air']:
+                    tmp_H_dist = [0.0, 0.0, 0.0, 0.0]
+                    for ais in t[rt]['air'][r]:
+                        for gs in t[rt]['ground'][r]:
+                            for ds in t[rt]['detect'][r]:
+                                tmp_H_dist += t[rt]['air'][r][ais] \
+                                        * t[rt]['ground'][r][gs] \
+                                        * t[rt]['detect'][r][ds] \
+                                        * self.H_knowing_AD_GD_ID[:,ais,gs,ds]
+                    probabilities_how[r] = tmp_H_dist
+                    tmp = tmp_H_dist * probabilities_where[r]
+                    for h,prob in enumerate(tmp):
+                        if prob > max_where_how:
+                            max_where_how = prob
+                            how = h
+                            where_how = r
+                    probabilities_where_how[r] = tmp
+                #print "Where (absolute):", where
+                #print "Where|how:", where_how
+                #print "How:", how
+                for attack_type in results[i][0]:
+                    if TacticalModel.attack_type_to_ind(attack_type) == how:
+                        good_how[rt] += 1
+                if results[i][-1][rt] == where_how:
+                    good_where[rt] += 1
+            #print results[i] # real battle that happened
+        for rt in good_where:
+            print "Type:", rt
+            print "Good where predictions:", good_where[rt]*1.0/len(results)
+            print "Good how predictions:", good_how[rt]*1.0/len(results)
 
-            
 
 if __name__ == "__main__":
     # serialize?
@@ -451,7 +476,8 @@ if __name__ == "__main__":
     tactics.train(battles)
     if testing:
         tactics.test(tests, results)
-    print tactics
+    ### print tactics
+
     ##### TODO remove
     import matplotlib.pyplot as plt
     if SHOW_TACTICAL_SCORES:

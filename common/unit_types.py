@@ -88,6 +88,10 @@ shoot_up_set = set(['Terran Marine', 'Terran Ghost', 'Terran Goliath', 'Terran W
 
 dont_shoot_down_set = set(['Terran Valkyrie', 'Terran Missile Turret', 'Protoss Corsair', 'Zerg Devourer', 'Zerg Scourge', 'Zerg Spore Colony'])
 
+shoot_down_set = military_set - dont_shoot_down_set
+
+ground_set = military_set - flying_set
+
 detectors_set = set(['Terran Science Vessel', 'Terran Missile Turret', 'Protoss Observer', 'Protoss Photon Cannon', 'Zerg Overlord', 'Zerg Spore Colony'])
 
 @memoize
