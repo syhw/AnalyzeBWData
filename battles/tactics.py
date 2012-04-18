@@ -320,9 +320,9 @@ class TacticalModel:
         s = ""
         for rt in ['Reg', 'CDR']:
             s += "Region type" + rt + "\n"
-            s += "*** P(A=true | EI, TI, B) ***\n"
+            s += "*** P(EI, TI, B | A) ***\n"
             s += self.EI_TI_B_knowing_A[rt].__repr__() + '\n'
-            s += "*** P(H | AD, GD, ID) ***\n"
+            s += "*** P(AD, GD, ID | H) ***\n"
             s += self.AD_GD_ID_knowing_H[rt].__repr__()
         return s
 
@@ -386,6 +386,8 @@ class TacticalModel:
     def test(self, tests, results):
         good_where = {'Reg': 0, 'CDR': 0}
         good_how = {'Reg': 0, 'CDR': 0}
+        rank_where = {'Reg': 0, 'CDR': 0}
+        distance_where = {'Reg': 0.0, 'CDR': 0.0}
         for i,t in enumerate(tests):
             for rt in t: # region types
                 probabilities_where = {}
