@@ -27,14 +27,20 @@ class PositionMapper:
                 started = True
             if started:
                 if 'CDR' in line:
-                    tmpcdr = int(line.split(',')[3])
+                    ll = line.split(',')
+                    tmpcdr = -42
+                    if len(ll[3]) > 0:
+                        tmpcdr = int(ll[3])
                     if tmpcdr in dm.dist_CDR:
                         p = posline.split(',')
                         p = hashable_pos_list([int(p[2]),int(p[3])])
                         self.pos_to_CDR[p] = tmpcdr
                         to_add_kd_CDR.add(p)
                 elif 'Reg' in line:
-                    tmpreg = int(line.split(',')[3])
+                    ll = line.split(',')
+                    tmpreg = -42
+                    if len(ll[3]) > 0:
+                        tmpreg = int(ll[3])
                     if tmpreg in dm.dist_Reg:
                         p = posline.split(',')
                         p = hashable_pos_list([int(p[2]),int(p[3])])
