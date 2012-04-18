@@ -84,6 +84,10 @@ def belong_distrib(r, defender, attacker, st, dm, t='Reg'):
         if x < 0.0: # it's an island
             return 11500.0 # that's 256(max map size)*32(pix/tile)*sqrt(2)
         return x
+    if attacker not in st.players_bases:
+        print "attacker", attacker
+    if t not in st.players_bases[attacker]:
+        print "t", t
     l_da = map(make_positive, [dm.dist(r, rb, t) for rb in st.players_bases[attacker][t]])
     da = 100000000000
     if l_da != []:
@@ -194,7 +198,7 @@ def extract_tactics_battles(fname, dm, pm=None):
                 tmp[rt]['tactic'] = s
                 tmp[rt]['belong'] = {}
                 for r in dm.list_regions(rt):
-                    tmp[rt]['belong'][r] = belong_distrib(r, defender, attacker, st, dm, rt)
+                    tmp[rt]['belong'][r] = belong_distrib(r, defender, attacker, st, dm, t=rt)
                 s, tot = compute_scores(st, defender, dm, unit_types.detectors_set, lambda x: 1.0, t=rt)
                 for k in s:
                     s[k] = detect_distrib(s[k])
@@ -465,9 +469,8 @@ if __name__ == "__main__":
             floc = open(fname[:-3]+'rld')
             dm = DistancesMaps(floc)
             floc.close()
-            floc = open(fname[:-3]+'rld')
             print "training on:", fname
-            pm = PositionMapper(floc)
+            pm = PositionMapper(dm, fname[:-3])
             players_races = data_tools.players_races(f)
             battles.extend(extract_tactics_battles(fname, dm, pm))
         for fname in testgames:
@@ -475,9 +478,8 @@ if __name__ == "__main__":
             floc = open(fname[:-3]+'rld')
             dm = DistancesMaps(floc)
             floc.close()
-            floc = open(fname[:-3]+'rld')
             print "testing on:", fname
-            pm = PositionMapper(floc)
+            pm = PositionMapper(dm, fname[:-3])
             players_races = data_tools.players_races(f)
             tests.extend(extract_tests(fname, dm, pm))
             results.extend(extract_tactics_battles(fname, dm, pm))
@@ -487,9 +489,8 @@ if __name__ == "__main__":
             floc = open(fname[:-3]+'rld')
             dm = DistancesMaps(floc)
             floc.close()
-            floc = open(fname[:-3]+'rld')
             print fname
-            pm = PositionMapper(floc)
+            pm = PositionMapper(dm, fname[:-3])
             players_races = data_tools.players_races(f)
             battles.extend(extract_tactics_battles(fname, dm, pm))
     tactics = TacticalModel()

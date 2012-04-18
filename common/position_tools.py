@@ -12,31 +12,56 @@ class PositionMapper:
 
     Uses two kd-trees and all the positions of the units as sampling of the map
     """
-    def __init__(self, f):
-        """ f should be a rld (replay location data) opened file """
+    def __init__(self, dm, fname):
+        """ fname should be a data prefix file name"""
         self.pos_to_CDR = {}
         self.pos_to_Reg = {}
         started = False
         posline = ''
         to_add_kd_CDR = set()
         to_add_kd_Reg = set()
-        for line in f:
+        floc = open(fname + 'rld')
+        for line in floc:
             line = line.rstrip('\r\n')
-            if '[Replay Start]' in line:
+            if not started and '[Replay Start]' in line:
                 started = True
             if started:
                 if 'CDR' in line:
-                    p = posline.split(',')
-                    p = hashable_pos_list([int(p[2]),int(p[3])])
-                    self.pos_to_CDR[p] = int(line.split(',')[3])
-                    to_add_kd_CDR.add(p)
+                    tmpcdr = int(line.split(',')[3])
+                    if tmpcdr in dm.dist_CDR:
+                        p = posline.split(',')
+                        p = hashable_pos_list([int(p[2]),int(p[3])])
+                        self.pos_to_CDR[p] = tmpcdr
+                        to_add_kd_CDR.add(p)
                 elif 'Reg' in line:
-                    p = posline.split(',')
-                    p = hashable_pos_list([int(p[2]),int(p[3])])
-                    self.pos_to_Reg[p] = int(line.split(',')[3])
-                    to_add_kd_Reg.add(p)
+                    tmpreg = int(line.split(',')[3])
+                    if tmpreg in dm.dist_Reg:
+                        p = posline.split(',')
+                        p = hashable_pos_list([int(p[2]),int(p[3])])
+                        self.pos_to_Reg[p] = tmpreg
+                        to_add_kd_Reg.add(p)
                 else:
                     posline = line
+        started = False
+        f = open(fname + 'rgd')
+        for line in f:
+            line = line.rstrip('\r\n')
+            if not started and 'Begin replay data:' in line:
+                started = True
+            if started:
+                if 'Created' in line:
+                    l = line.split(',')
+                    p = hashable_pos_list([int(l[-4][1:]),int(l[-3][:-1])])
+                    if l[-2] != '-1':
+                        tmpcdr = int(l[-2])
+                        if tmpcdr in dm.dist_CDR:
+                            self.pos_to_CDR[p] = tmpcdr
+                            to_add_kd_CDR.add(p)
+                    if l[-1] != '-1':
+                        tmpreg = int(l[-1])
+                        if tmpreg in dm.dist_Reg:
+                            self.pos_to_Reg[p] = tmpreg
+                            to_add_kd_Reg.add(p)
         self.kd_CDR = cKDTree(list(to_add_kd_CDR))
         self.kd_Reg = cKDTree(list(to_add_kd_Reg))
     def get_CDR(self, x, y):
