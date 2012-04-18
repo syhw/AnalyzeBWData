@@ -84,10 +84,6 @@ def belong_distrib(r, defender, attacker, st, dm, t='Reg'):
         if x < 0.0: # it's an island
             return 11500.0 # that's 256(max map size)*32(pix/tile)*sqrt(2)
         return x
-    if attacker not in st.players_bases:
-        print "attacker", attacker
-    if t not in st.players_bases[attacker]:
-        print "t", t
     l_da = map(make_positive, [dm.dist(r, rb, t) for rb in st.players_bases[attacker][t]])
     da = 100000000000
     if l_da != []:
@@ -158,6 +154,9 @@ def units_distrib(score): # score is given relative to attackers force
     return d
 
 def detect_attacker(defender, d):
+    if len(d) < 2:
+        print "only one player in an attack"
+        return -1
     for k in d:
         if k != defender:
             return k
@@ -183,6 +182,8 @@ def extract_tactics_battles(fname, dm, pm=None):
             reg = pm.get_Reg(tmpres[1][0], tmpres[1][1])
             units = data_tools.parse_dicts(line)
             units = obs.heuristics_remove_observers(units)
+            if len(units[0]) < 2:
+                continue
             defender = line.split(',')[1]
             attacker = detect_attacker(defender, units[0])
 
@@ -239,6 +240,8 @@ def extract_tests(fname, dm, pm=None):
         if 'IsAttacked' in line:
             units = data_tools.parse_dicts(line)
             units = obs.heuristics_remove_observers(units)
+            if len(units[0]) < 2:
+                continue
             defender = line.split(',')[1]
             attacker = detect_attacker(defender, units[0])
             tmp = {'Reg': {}, 'CDR': {}}
