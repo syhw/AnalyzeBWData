@@ -161,7 +161,7 @@ def detect_attacker(defender, d):
         if k != defender:
             return k
 
-def extract_tactics_battles(fname, dm, pm=None):
+def extract_tactics_battles(fname, pr, dm, pm=None):
     """ 
     Extract all attacks and tactics from the file named fname,
     with the distance map (between regions) dm, and the positional mapper pm
@@ -217,7 +217,7 @@ def extract_tactics_battles(fname, dm, pm=None):
                     s[k] = units_distrib(s_d[k] / (0.1 + s_a[k]))
                 tmp[rt]['air'] = s
 
-            battles.append((tmpres[0], tmp, {'Reg': reg, "CDR": cdr}))
+            battles.append((tmpres[0], tmp, pr[attacker], {'Reg': reg, "CDR": cdr}))
             #              (list of types, dict of distribs, CDR, Reg)
     return battles
 
@@ -275,6 +275,139 @@ def extract_tests(fname, dm, pm=None):
                 tmp[rt]['air'] = s
             tests.append(tmp)
     return tests
+
+class TacticsMatchUp:
+    """
+    Regroups all the tactical models for each races in a given match-up
+    interface by count_battles (dispatch to the right models) and normalize()
+    """
+
+    def __init__(self):
+        self.models = {'P': TacticalModel(), 'T': TacticalModel(), 'Z': TacticalModel()}
+
+    def __repr__(self):
+        s = ""
+        for k,v in self.models.iteritems():
+            s += "**************** \n"
+            s += "Model for race " + k + "\n"
+            s += "**************** \n"
+            s += v.__repr__()
+        return s
+
+    def count_battles(self, battles):
+        for b in battles:
+            for rt in ['Reg', 'CDR']:
+                self.models[b[-2]].count_battle(b, rt)
+
+    def normalize(self):
+        for k,m in self.models.iteritems():
+            print "Model race", k
+            m.normalize()
+
+    def test(self, tests, results):
+        td = {'P': [], 'T': [], 'Z': []}
+        rd = {'P': [], 'T': [], 'Z': []}
+        for i,r in enumerate(results):
+            rd[r[-2]].append(r)
+            td[r[-2]].append(tests[i])
+        for k in td:
+            self.models[k].test(td[k], rd[k])
+
+    def plot_tables(self):
+        import matplotlib.pyplot as plt
+
+        for race,m in self.models.iteritems():
+            if m.n_battles <= 0.0:
+                continue
+            for rt,t in m.EI_TI_B_knowing_A.iteritems():
+                fig = plt.figure()
+                ax = fig.add_subplot(221)
+                ind = np.arange(3)
+                width = 0.5
+                ax.set_xticks(ind+width)
+                ax.set_xticklabels(["no eco", "low eco", "high eco"])
+                #print [tactics.EI_TI_B_knowing_A[rt][i,:,:] for i in ind]
+                s = [sum(sum(t[i,:,:,1])) for i in ind]
+                #print s
+                ax.bar(ind+width, s, width, color='r')
+
+                ax = fig.add_subplot(222)
+                ind = np.arange(5)
+                ax.set_xticks(ind+width)
+                ax.set_xlabel("tactical value")
+                ax.set_xticklabels(["0", "1", "2", "3", "4"])
+                s = [sum(sum(t[:,i,:,1])) for i in ind]
+                ax.bar(ind+width, s, width, color='r')
+
+                ax = fig.add_subplot(223)
+                ind = np.arange(2)
+                ax.set_xticks(ind+width)
+                ax.set_xticklabels(["doesn't belong", "belong"])
+                s = [sum(sum(t[:,:,i,1])) for i in ind]
+                ax.bar(ind+width, s, width, color='r')
+                
+                plt.show()
+
+            for rt,t in m.AD_GD_ID_knowing_H.iteritems():
+                fig = plt.figure()
+
+                ax = fig.add_subplot(321)
+                ind = np.arange(3)
+                ax.set_xticks(ind+width)
+                ax.set_xlabel("air defense level")
+                ax.set_ylabel("P(Air)")
+                #ax.set_xticklabels(["", "", ""])
+                s = [sum(sum(t[i,:,:,1])) for i in ind]
+                #print s
+                ax.bar(ind+width, s, width, color='r')
+
+                ax = fig.add_subplot(322)
+                ind = np.arange(3)
+                ax.set_xticks(ind+width)
+                ax.set_xlabel("air defense level")
+                ax.set_ylabel("P(Drop)")
+                s = [sum(sum(t[i,:,:,2])) for i in ind]
+                print s
+                ax.bar(ind+width, s, width, color='r')
+
+                ax = fig.add_subplot(323)
+                ind = np.arange(3)
+                ax.set_xticks(ind+width)
+                ax.set_xlabel("ground defense level")
+                ax.set_ylabel("P(Ground)")
+                s = [sum(sum(t[:,i,:,0])) for i in ind]
+                print s
+                ax.bar(ind+width, s, width, color='r')
+
+                ax = fig.add_subplot(324)
+                ind = np.arange(3)
+                ax.set_xticks(ind+width)
+                ax.set_xlabel("ground defense level")
+                ax.set_ylabel("P(Drop)")
+                s = [sum(sum(t[:,i,:,2])) for i in ind]
+                print s
+                ax.bar(ind+width, s, width, color='r')
+
+                ax = fig.add_subplot(325)
+                ind = np.arange(3)
+                ax.set_xticks(ind+width)
+                ax.set_xlabel("ground defense level")
+                ax.set_ylabel("P(Invis)")
+                s = [sum(sum(t[:,i,:,3])) for i in ind]
+                print s
+                ax.bar(ind+width, s, width, color='r')
+
+                ax = fig.add_subplot(326)
+                ind = np.arange(3)
+                ax.set_xticks(ind+width)
+                ax.set_xlabel("invis defense level")
+                ax.set_ylabel("P(Invis)")
+                s = [sum(sum(t[:,:,i,3])) for i in ind]
+                print s
+                ax.bar(ind+width, s, width, color='r')
+
+                plt.show()
+
 
 class TacticalModel:
     """
@@ -344,6 +477,9 @@ class TacticalModel:
             raise TypeError
     
     def count_battle(self, b, rt):
+        """
+        fills EI_TI_B_knowing_A[rt] and AD_GD_ID_knowing_H[rt] according to b
+        """
         rnumber = b[-1][rt]
         for keco,veco in b[1][rt]['eco'][rnumber].iteritems():
             for ktac,vtac in b[1][rt]['tactic'][rnumber].iteritems():
@@ -368,15 +504,7 @@ class TacticalModel:
                         ind = TacticalModel.attack_type_to_ind(attack_type)
                         self.AD_GD_ID_knowing_H[rt][kair, kground, kdetect,ind] += tmp
                         self.n_how[ind] += tmp
-
-    def count_battles(self, battles):
-        """
-        fills EI_TI_B_knowing_A[rt] and AD_GD_ID_knowing_H[rt] according to battles
-        """
-        for rt in ['Reg', 'CDR']:
-            for b in battles:
-                self.count_battle(b, rt)
-                
+ 
     def normalize(self):
         for rt in self.AD_GD_ID_knowing_H:
             for ind in range(len(self.n_how)):
@@ -386,9 +514,12 @@ class TacticalModel:
         print "I've seen", int(self.n_battles), "battles"
 
     def test(self, tests, results):
+        if len(results) == 0:
+            return 
         good_where = {'Reg': 0, 'CDR': 0}
         good_how = {'Reg': 0, 'CDR': 0}
         rank_where = {'Reg': 0, 'CDR': 0}
+        proba_where = {'Reg': 0.0, 'CDR': 0.0}
         distance_where = {'Reg': 0.0, 'CDR': 0.0}
         for i,t in enumerate(tests):
             for rt in t: # region types
@@ -460,7 +591,7 @@ if __name__ == "__main__":
         fnamelist = sys.argv[1:]
     tests = []
     results = []
-    tactics = TacticalModel()
+    tactics = TacticsMatchUp()
     if testing:
         i = 0
         learngames = []
@@ -478,8 +609,8 @@ if __name__ == "__main__":
             floc.close()
             print "training on:", fname
             pm = PositionMapper(dm, fname[:-3])
-            players_races = data_tools.players_races(f)
-            tactics.count_battles(extract_tactics_battles(fname, dm, pm))
+            pr = data_tools.players_races(f)
+            tactics.count_battles(extract_tactics_battles(fname, pr, dm, pm))
         for fname in testgames:
             f = open(fname)
             floc = open(fname[:-3]+'rld')
@@ -487,9 +618,9 @@ if __name__ == "__main__":
             floc.close()
             print "testing on:", fname
             pm = PositionMapper(dm, fname[:-3])
-            players_races = data_tools.players_races(f)
+            pr = data_tools.players_races(f)
             tests.extend(extract_tests(fname, dm, pm))
-            results.extend(extract_tactics_battles(fname, dm, pm))
+            results.extend(extract_tactics_battles(fname, pr, dm, pm))
     else:
         for fname in fnamelist:
             f = open(fname)
@@ -498,101 +629,13 @@ if __name__ == "__main__":
             floc.close()
             print fname
             pm = PositionMapper(dm, fname[:-3])
-            players_races = data_tools.players_races(f)
-            tactics.count_battles(extract_tactics_battles(fname, dm, pm))
+            pr = data_tools.players_races(f)
+            tactics.count_battles(extract_tactics_battles(fname, pr, dm, pm))
     tactics.normalize()
     if testing:
         tactics.test(tests, results)
     print tactics
     if '-p' in sys.argv[1:]:
-        import matplotlib.pyplot as plt
-        fig = plt.figure()
-
-        rt = 'Reg'
-        ax = fig.add_subplot(221)
-        ind = np.arange(3)
-        width = 0.5
-        ax.set_xticks(ind+width)
-        ax.set_xticklabels(["no eco", "low eco", "high eco"])
-        #print [tactics.EI_TI_B_knowing_A[rt][i,:,:] for i in ind]
-        s = [sum(sum(tactics.EI_TI_B_knowing_A[rt][i,:,:,1])) for i in ind]
-        #print s
-        ax.bar(ind+width, s, width, color='r')
-
-        ax = fig.add_subplot(222)
-        ind = np.arange(5)
-        ax.set_xticks(ind+width)
-        ax.set_xlabel("tactical value")
-        ax.set_xticklabels(["0", "1", "2", "3", "4"])
-        s = [sum(sum(tactics.EI_TI_B_knowing_A[rt][:,i,:,1])) for i in ind]
-        ax.bar(ind+width, s, width, color='r')
-
-        ax = fig.add_subplot(223)
-        ind = np.arange(2)
-        ax.set_xticks(ind+width)
-        ax.set_xticklabels(["doesn't belong", "belong"])
-        s = [sum(sum(tactics.EI_TI_B_knowing_A[rt][:,:,i,1])) for i in ind]
-        ax.bar(ind+width, s, width, color='r')
-        
-        plt.show()
-
-        fig = plt.figure()
-
-        ax = fig.add_subplot(321)
-        ind = np.arange(3)
-        ax.set_xticks(ind+width)
-        ax.set_xlabel("air defense level")
-        ax.set_ylabel("P(Air)")
-        #ax.set_xticklabels(["", "", ""])
-        s = [sum(sum(tactics.AD_GD_ID_knowing_H[rt][i,:,:,1])) for i in ind]
-        #print s
-        ax.bar(ind+width, s, width, color='r')
-
-        ax = fig.add_subplot(322)
-        ind = np.arange(3)
-        ax.set_xticks(ind+width)
-        ax.set_xlabel("air defense level")
-        ax.set_ylabel("P(Drop)")
-        s = [sum(sum(tactics.AD_GD_ID_knowing_H[rt][i,:,:,2])) for i in ind]
-        print s
-        ax.bar(ind+width, s, width, color='r')
-
-        ax = fig.add_subplot(323)
-        ind = np.arange(3)
-        ax.set_xticks(ind+width)
-        ax.set_xlabel("ground defense level")
-        ax.set_ylabel("P(Ground)")
-        s = [sum(sum(tactics.AD_GD_ID_knowing_H[rt][:,i,:,0])) for i in ind]
-        print s
-        ax.bar(ind+width, s, width, color='r')
-
-        ax = fig.add_subplot(324)
-        ind = np.arange(3)
-        ax.set_xticks(ind+width)
-        ax.set_xlabel("ground defense level")
-        ax.set_ylabel("P(Drop)")
-        s = [sum(sum(tactics.AD_GD_ID_knowing_H[rt][:,i,:,2])) for i in ind]
-        print s
-        ax.bar(ind+width, s, width, color='r')
-
-        ax = fig.add_subplot(325)
-        ind = np.arange(3)
-        ax.set_xticks(ind+width)
-        ax.set_xlabel("ground defense level")
-        ax.set_ylabel("P(Invis)")
-        s = [sum(sum(tactics.AD_GD_ID_knowing_H[rt][:,i,:,3])) for i in ind]
-        print s
-        ax.bar(ind+width, s, width, color='r')
-
-        ax = fig.add_subplot(326)
-        ind = np.arange(3)
-        ax.set_xticks(ind+width)
-        ax.set_xlabel("invis defense level")
-        ax.set_ylabel("P(Invis)")
-        s = [sum(sum(tactics.AD_GD_ID_knowing_H[rt][:,:,i,3])) for i in ind]
-        print s
-        ax.bar(ind+width, s, width, color='r')
-
-        plt.show()
+        tactics.plot_tables()
 
 
