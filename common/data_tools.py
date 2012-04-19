@@ -131,5 +131,5 @@ def players_races(f):
             break
         elif read:
             l = line.split(',')
-            r[l[0]] = l[2][1]
+            r[l[0]] = l[-2][1]
     return r
