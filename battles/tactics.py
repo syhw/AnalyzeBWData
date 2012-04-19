@@ -17,7 +17,7 @@ testing = True
 
 ADD_SMOOTH = 1.0 # Laplace smoothing, could be less
 TACT_PARAM = 1.6 # power of the distance of units to/from regions
-NUMBER_OF_TEST_GAMES = 10 # number of games to evaluates the tactical model on
+NUMBER_OF_TEST_GAMES = 20 # number of games to evaluates the tactical model on
 # 1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
 
@@ -315,6 +315,9 @@ class TacticalModel:
 
             self.AD_GD_ID_knowing_H[rt] = np.ndarray(shape=(3,3,3,4), dtype='float')
             self.AD_GD_ID_knowing_H[rt].fill(ADD_SMOOTH)
+        self.n_battles = 0.0
+        self.n_not_battles = 0.0
+        self.n_how = [0.0, 0.0, 0.0, 0.0]
 
     def __repr__(self):
         s = ""
@@ -339,49 +342,48 @@ class TacticalModel:
         else:
             print "Not a good attack type label"
             raise TypeError
+    
+    def count_battle(self, b, rt):
+        rnumber = b[-1][rt]
+        for keco,veco in b[1][rt]['eco'][rnumber].iteritems():
+            for ktac,vtac in b[1][rt]['tactic'][rnumber].iteritems():
+                for kbel,vbel in b[1][rt]['belong'][rnumber].iteritems():
+                    tmp = veco*vtac*vbel
+                    self.EI_TI_B_knowing_A[rt][keco, ktac, kbel, 1] += tmp 
+                    self.n_battles += tmp
+        for r in b[1][rt]['eco']:
+            if r != rnumber:
+                for keco,veco in b[1][rt]['eco'][r].iteritems():
+                    for ktac,vtac in b[1][rt]['tactic'][r].iteritems():
+                        for kbel,vbel in b[1][rt]['belong'][r].iteritems():
+                            tmp = veco*vtac*vbel
+                            self.EI_TI_B_knowing_A[rt][keco, ktac, kbel, 0] += tmp 
+                            self.n_not_battles += tmp
 
-    def train(self, battles):
+        for attack_type in b[0]:
+            for kair,vair in b[1][rt]['air'][rnumber].iteritems():
+                for kground,vground in b[1][rt]['ground'][rnumber].iteritems():
+                    for kdetect,vdetect in b[1][rt]['detect'][rnumber].iteritems():
+                        tmp = vair*vground*vdetect
+                        ind = TacticalModel.attack_type_to_ind(attack_type)
+                        self.AD_GD_ID_knowing_H[rt][kair, kground, kdetect,ind] += tmp
+                        self.n_how[ind] += tmp
+
+    def count_battles(self, battles):
         """
         fills EI_TI_B_knowing_A[rt] and AD_GD_ID_knowing_H[rt] according to battles
         """
-        n_battles = 0.0
-        n_not_battles = 0.0
-        n_how = [0.0, 0.0, 0.0, 0.0]
-
         for rt in ['Reg', 'CDR']:
             for b in battles:
-                # for Reg only ATM TODO CDR
-                rnumber = b[-1][rt]
-                for keco,veco in b[1][rt]['eco'][rnumber].iteritems():
-                    for ktac,vtac in b[1][rt]['tactic'][rnumber].iteritems():
-                        for kbel,vbel in b[1][rt]['belong'][rnumber].iteritems():
-                            tmp = veco*vtac*vbel
-                            self.EI_TI_B_knowing_A[rt][keco, ktac, kbel, 1] += tmp 
-                            n_battles += tmp
-                for r in b[1][rt]['eco']:
-                    if r != rnumber:
-                        for keco,veco in b[1][rt]['eco'][r].iteritems():
-                            for ktac,vtac in b[1][rt]['tactic'][r].iteritems():
-                                for kbel,vbel in b[1][rt]['belong'][r].iteritems():
-                                    tmp = veco*vtac*vbel
-                                    self.EI_TI_B_knowing_A[rt][keco, ktac, kbel, 0] += tmp 
-                                    n_not_battles += tmp
-
-                for attack_type in b[0]:
-                    for kair,vair in b[1][rt]['air'][rnumber].iteritems():
-                        for kground,vground in b[1][rt]['ground'][rnumber].iteritems():
-                            for kdetect,vdetect in b[1][rt]['detect'][rnumber].iteritems():
-                                tmp = vair*vground*vdetect
-                                ind = TacticalModel.attack_type_to_ind(attack_type)
-                                self.AD_GD_ID_knowing_H[rt][kair, kground, kdetect,ind] += tmp
-                                n_how[ind] += tmp
-
-            for ind in range(len(n_how)):
-                self.AD_GD_ID_knowing_H[rt][:,:,:,ind] /= n_how[ind] + len(self.AD_GD_ID_knowing_H[rt])*len(self.AD_GD_ID_knowing_H[rt][0])*len(self.AD_GD_ID_knowing_H[rt][0][0])*ADD_SMOOTH
-            self.EI_TI_B_knowing_A[rt][:,:,:,1] /= n_battles + len(self.EI_TI_B_knowing_A[rt])*len(self.EI_TI_B_knowing_A[rt][0])*len(self.EI_TI_B_knowing_A[rt][0][0])*ADD_SMOOTH
-            self.EI_TI_B_knowing_A[rt][:,:,:,0] /= n_not_battles + len(self.EI_TI_B_knowing_A[rt])*len(self.EI_TI_B_knowing_A[rt][0])*len(self.EI_TI_B_knowing_A[rt][0][0])*ADD_SMOOTH
-
-        print "I've seen", len(battles), "battles"
+                self.count_battle(b, rt)
+                
+    def normalize(self):
+        for rt in self.AD_GD_ID_knowing_H:
+            for ind in range(len(self.n_how)):
+                self.AD_GD_ID_knowing_H[rt][:,:,:,ind] /= self.n_how[ind] + len(self.AD_GD_ID_knowing_H[rt])*len(self.AD_GD_ID_knowing_H[rt][0])*len(self.AD_GD_ID_knowing_H[rt][0][0])*ADD_SMOOTH
+            self.EI_TI_B_knowing_A[rt][:,:,:,1] /= self.n_battles + len(self.EI_TI_B_knowing_A[rt])*len(self.EI_TI_B_knowing_A[rt][0])*len(self.EI_TI_B_knowing_A[rt][0][0])*ADD_SMOOTH
+            self.EI_TI_B_knowing_A[rt][:,:,:,0] /= self.n_not_battles + len(self.EI_TI_B_knowing_A[rt])*len(self.EI_TI_B_knowing_A[rt][0])*len(self.EI_TI_B_knowing_A[rt][0][0])*ADD_SMOOTH
+        print "I've seen", int(self.n_battles), "battles"
 
     def test(self, tests, results):
         good_where = {'Reg': 0, 'CDR': 0}
@@ -456,9 +458,9 @@ if __name__ == "__main__":
         fnamelist = glob.iglob(sys.argv[2] + '/*.rgd')
     else:
         fnamelist = sys.argv[1:]
-    battles = []
     tests = []
     results = []
+    tactics = TacticalModel()
     if testing:
         i = 0
         learngames = []
@@ -477,7 +479,7 @@ if __name__ == "__main__":
             print "training on:", fname
             pm = PositionMapper(dm, fname[:-3])
             players_races = data_tools.players_races(f)
-            battles.extend(extract_tactics_battles(fname, dm, pm))
+            tactics.count_battles(extract_tactics_battles(fname, dm, pm))
         for fname in testgames:
             f = open(fname)
             floc = open(fname[:-3]+'rld')
@@ -497,9 +499,8 @@ if __name__ == "__main__":
             print fname
             pm = PositionMapper(dm, fname[:-3])
             players_races = data_tools.players_races(f)
-            battles.extend(extract_tactics_battles(fname, dm, pm))
-    tactics = TacticalModel()
-    tactics.train(battles)
+            tactics.count_battles(extract_tactics_battles(fname, dm, pm))
+    tactics.normalize()
     if testing:
         tactics.test(tests, results)
     print tactics
