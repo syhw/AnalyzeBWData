@@ -17,6 +17,7 @@ testing = True
 
 ADD_SMOOTH = 1.0 # Laplace smoothing, could be less
 TACT_PARAM = 1.6 # power of the distance of units to/from regions
+WITH_DROP = False
 NUMBER_OF_TEST_GAMES = 20 # number of games to evaluates the tactical model on
 # 1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
@@ -364,9 +365,9 @@ class TacticsMatchUp:
                 ax = fig.add_subplot(322)
                 ind = np.arange(3)
                 ax.set_xticks(ind+width)
-                ax.set_xlabel("air defense level")
-                ax.set_ylabel("P(Drop)")
-                s = [sum(sum(t[i,:,:,2])) for i in ind]
+                ax.set_xlabel("ground defense level")
+                ax.set_ylabel("P(Ground)")
+                s = [sum(sum(t[:,i,:,0])) for i in ind]
                 print s
                 ax.bar(ind+width, s, width, color='r')
 
@@ -374,37 +375,38 @@ class TacticsMatchUp:
                 ind = np.arange(3)
                 ax.set_xticks(ind+width)
                 ax.set_xlabel("ground defense level")
-                ax.set_ylabel("P(Ground)")
-                s = [sum(sum(t[:,i,:,0])) for i in ind]
+                ax.set_ylabel("P(Invis)")
+                s = [sum(sum(t[:,i,:,2])) for i in ind]
                 print s
                 ax.bar(ind+width, s, width, color='r')
 
                 ax = fig.add_subplot(324)
                 ind = np.arange(3)
                 ax.set_xticks(ind+width)
-                ax.set_xlabel("ground defense level")
-                ax.set_ylabel("P(Drop)")
-                s = [sum(sum(t[:,i,:,2])) for i in ind]
-                print s
-                ax.bar(ind+width, s, width, color='r')
-
-                ax = fig.add_subplot(325)
-                ind = np.arange(3)
-                ax.set_xticks(ind+width)
-                ax.set_xlabel("ground defense level")
-                ax.set_ylabel("P(Invis)")
-                s = [sum(sum(t[:,i,:,3])) for i in ind]
-                print s
-                ax.bar(ind+width, s, width, color='r')
-
-                ax = fig.add_subplot(326)
-                ind = np.arange(3)
-                ax.set_xticks(ind+width)
                 ax.set_xlabel("invis defense level")
                 ax.set_ylabel("P(Invis)")
-                s = [sum(sum(t[:,:,i,3])) for i in ind]
+                s = [sum(sum(t[:,:,i,2])) for i in ind]
                 print s
                 ax.bar(ind+width, s, width, color='r')
+
+                if WITH_DROP:
+                    ax = fig.add_subplot(325)
+                    ind = np.arange(3)
+                    ax.set_xticks(ind+width)
+                    ax.set_xlabel("air defense level")
+                    ax.set_ylabel("P(Drop)")
+                    s = [sum(sum(t[i,:,:,3])) for i in ind]
+                    print s
+                    ax.bar(ind+width, s, width, color='r')
+
+                    ax = fig.add_subplot(326)
+                    ind = np.arange(3)
+                    ax.set_xticks(ind+width)
+                    ax.set_xlabel("ground defense level")
+                    ax.set_ylabel("P(Drop)")
+                    s = [sum(sum(t[:,i,:,3])) for i in ind]
+                    print s
+                    ax.bar(ind+width, s, width, color='r')
 
                 plt.show()
 
@@ -424,7 +426,8 @@ class TacticalModel:
         P(lambda|B,B') = 1.0 ssi B == B'
         ex.: P(B=True) = 0.5 in the middle of the map
 
-        H (How) in {Ground, Air, Drop, Invisible}
+        H (How) in {Ground, Air, Invisible, Drop}
+            WITH_DROP = True => H has "Drop", otherwise not
         AD (Air defense) in {0, 1, 2} (0: no defense, 1: light defense compared
         GD (Ground defense) in {0, 1, 2}  ..to the attacker, 2: heavy defense)
         ID (Invisible defense = #detectors) in {0, 1, 2+}
@@ -446,11 +449,18 @@ class TacticalModel:
             self.EI_TI_B_knowing_A[rt] = np.ndarray(shape=(3,5,2,2), dtype='float')
             self.EI_TI_B_knowing_A[rt].fill(ADD_SMOOTH)
 
-            self.AD_GD_ID_knowing_H[rt] = np.ndarray(shape=(3,3,3,4), dtype='float')
+            self.AD_GD_ID_knowing_H[rt] = np.ndarray(1)
+            if WITH_DROP:
+                self.AD_GD_ID_knowing_H[rt] = np.ndarray(shape=(3,3,3,4), dtype='float')
+            else:
+                self.AD_GD_ID_knowing_H[rt] = np.ndarray(shape=(3,3,3,3), dtype='float')
+
             self.AD_GD_ID_knowing_H[rt].fill(ADD_SMOOTH)
         self.n_battles = 0.0
         self.n_not_battles = 0.0
-        self.n_how = [0.0, 0.0, 0.0, 0.0]
+        self.n_how = [0.0, 0.0, 0.0] # w/o drop: ground/air/invisible
+        if WITH_DROP:
+            self.n_how = [0.0, 0.0, 0.0, 0.0] # w/ drop: ground/air/invis/drop
 
     def __repr__(self):
         s = ""
@@ -468,9 +478,9 @@ class TacticalModel:
             return 0
         elif at == 'AirAttack':
             return 1
-        elif at == 'DropAttack':
-            return 2
         elif at == 'InvisAttack':
+            return 2
+        elif WITH_DROP and at == 'DropAttack':
             return 3
         else:
             print "Not a good attack type label"
@@ -516,6 +526,7 @@ class TacticalModel:
     def test(self, tests, results):
         if len(results) == 0:
             return 
+        good_where_how = {'Reg': 0, 'CDR': 0}
         good_where = {'Reg': 0, 'CDR': 0}
         good_how = {'Reg': 0, 'CDR': 0}
         rank_where = {'Reg': 0, 'CDR': 0}
@@ -550,7 +561,9 @@ class TacticalModel:
                 how = 0
                 where_how = 0
                 for r in t[rt]['air']:
-                    tmp_H_dist = [0.0, 0.0, 0.0, 0.0]
+                    tmp_H_dist = [0.0, 0.0, 0.0] # w/o drop
+                    if WITH_DROP:
+                        tmp_H_dist = [0.0, 0.0, 0.0, 0.0]
                     for ais in t[rt]['air'][r]:
                         for gs in t[rt]['ground'][r]:
                             for ds in t[rt]['detect'][r]:
@@ -573,11 +586,14 @@ class TacticalModel:
                     if TacticalModel.attack_type_to_ind(attack_type) == how:
                         good_how[rt] += 1
                 if results[i][-1][rt] == where_how:
+                    good_where_how[rt] += 1
+                if results[i][-1][rt] == where:
                     good_where[rt] += 1
             #print results[i] # real battle that happened
-        for rt in good_where:
+        for rt in good_where_how:
             print "Type:", rt
             print "Good where predictions:", good_where[rt]*1.0/len(results)
+            print "Good where+how predictions:", good_where_how[rt]*1.0/len(results)
             print "Good how predictions:", good_how[rt]*1.0/len(results)
 
 
@@ -607,7 +623,7 @@ if __name__ == "__main__":
             floc = open(fname[:-3]+'rld')
             dm = DistancesMaps(floc)
             floc.close()
-            print "training on:", fname
+            print >> sys.stderr, "training on:", fname
             pm = PositionMapper(dm, fname[:-3])
             pr = data_tools.players_races(f)
             tactics.count_battles(extract_tactics_battles(fname, pr, dm, pm))
@@ -616,7 +632,7 @@ if __name__ == "__main__":
             floc = open(fname[:-3]+'rld')
             dm = DistancesMaps(floc)
             floc.close()
-            print "testing on:", fname
+            print >> sys.stderr, "testing on:", fname
             pm = PositionMapper(dm, fname[:-3])
             pr = data_tools.players_races(f)
             tests.extend(extract_tests(fname, dm, pm))
@@ -627,7 +643,7 @@ if __name__ == "__main__":
             floc = open(fname[:-3]+'rld')
             dm = DistancesMaps(floc)
             floc.close()
-            print fname
+            print >> sys.stderr, fname
             pm = PositionMapper(dm, fname[:-3])
             pr = data_tools.players_races(f)
             tactics.count_battles(extract_tactics_battles(fname, pr, dm, pm))
