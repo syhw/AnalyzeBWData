@@ -14,13 +14,22 @@ except:
 testing = True
 
 # TODO maxi refactor
+# TODO verify probas (sum to 1) and tables contents (bias? priors?)
+# TODO predict 20 sec before attack
+# TODO A (where happens the attack) comes from a distrib "where it is possible"
+# TODO new scores
 
-ADD_SMOOTH = 1.0 # Laplace smoothing, could be less
+ADD_SMOOTH = 1.0 # Laplace smoothing, could be less than 1.0
 TACT_PARAM = 1.6 # power of the distance of units to/from regions
-WITH_DROP = False
-NUMBER_OF_TEST_GAMES = 20 # number of games to evaluates the tactical model on
 # 1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
+WITH_DROP = False # with or without Drop as an attack type
+INFER_DROP = True # with or without inference of drops
+if not WITH_DROP:
+    INFER_DROP = False
+ALT_ECO_SCORE = False # compute an alternative eco score like the tactical one
+ECO_SCORE_PARA = 1.6 # power of the distance of workers to/from regions
+NUMBER_OF_TEST_GAMES = 20 # number of games to evaluates the tactical model on
 
 def select(state, player, inset):
     """ In the given 'state', returns the units in 'inset' of the 'player' """
@@ -187,6 +196,8 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
                 continue
             defender = line.split(',')[1]
             attacker = detect_attacker(defender, units[0])
+            if INFER_DROP and max([True if d in units[0][attacker] else False for d in unit_types.drop]):
+                tmpres[0].append('DropAttack')
 
             tmp = {'Reg': {}, 'CDR': {}}
             for rt in tmp:
@@ -322,6 +333,8 @@ class TacticsMatchUp:
                 continue
             for rt,t in m.EI_TI_B_knowing_A.iteritems():
                 fig = plt.figure()
+                fig.subplots_adjust(wspace=0.3, hspace=0.6)
+
                 ax = fig.add_subplot(221)
                 ind = np.arange(3)
                 width = 0.5
@@ -347,10 +360,12 @@ class TacticsMatchUp:
                 s = [sum(sum(t[:,:,i,1])) for i in ind]
                 ax.bar(ind+width, s, width, color='r')
                 
-                plt.show()
+                #plt.show()
+                plt.savefig("where"+rt+".png")
 
             for rt,t in m.AD_GD_ID_knowing_H.iteritems():
                 fig = plt.figure()
+                fig.subplots_adjust(wspace=0.3, hspace=0.6)
 
                 ax = fig.add_subplot(321)
                 ind = np.arange(3)
@@ -408,7 +423,8 @@ class TacticsMatchUp:
                     print s
                     ax.bar(ind+width, s, width, color='r')
 
-                plt.show()
+                #plt.show()
+                plt.savefig("how"+rt+".png")
 
 
 class TacticalModel:
@@ -465,7 +481,7 @@ class TacticalModel:
     def __repr__(self):
         s = ""
         for rt in ['Reg', 'CDR']:
-            s += "Region type" + rt + "\n"
+            s += "\nRegion type" + rt + "\n"
             s += "*** P(EI, TI, B | A) ***\n"
             s += self.EI_TI_B_knowing_A[rt].__repr__() + '\n'
             s += "*** P(AD, GD, ID | H) ***\n"
@@ -528,7 +544,8 @@ class TacticalModel:
             return 
         good_where_how = {'Reg': 0, 'CDR': 0}
         good_where = {'Reg': 0, 'CDR': 0}
-        good_how = {'Reg': 0, 'CDR': 0}
+        number_at = {} # number of attacks for each attack type
+        good_how = {'Reg': {}, 'CDR': {}}
         rank_where = {'Reg': 0, 'CDR': 0}
         proba_where = {'Reg': 0.0, 'CDR': 0.0}
         distance_where = {'Reg': 0.0, 'CDR': 0.0}
@@ -583,8 +600,11 @@ class TacticalModel:
                 #print "Where|how:", where_how
                 #print "How:", how
                 for attack_type in results[i][0]:
+                    number_at[attack_type] = number_at.get(attack_type, 0) + 1
                     if TacticalModel.attack_type_to_ind(attack_type) == how:
-                        good_how[rt] += 1
+                        good_how[rt][attack_type] = good_how[rt].get(attack_type, 0) + 1
+                    #if len(results[i][0]) > 1:
+                    #    probabilities_how[where] 
                 if results[i][-1][rt] == where_how:
                     good_where_how[rt] += 1
                 if results[i][-1][rt] == where:
@@ -594,7 +614,13 @@ class TacticalModel:
             print "Type:", rt
             print "Good where predictions:", good_where[rt]*1.0/len(results)
             print "Good where+how predictions:", good_where_how[rt]*1.0/len(results)
-            print "Good how predictions:", good_how[rt]*1.0/len(results)
+            total = 0
+            good = 0
+            for attack_type,gh in good_how[rt].iteritems():
+                total += number_at[attack_type]
+                good += gh
+                print "Good how", attack_type, "predictions:", gh*1.0/number_at[attack_type], ":", good, "/", total
+            print "Good how predictions:", good*1.0/total
 
 
 if __name__ == "__main__":
