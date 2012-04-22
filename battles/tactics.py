@@ -11,25 +11,25 @@ except:
     print "you need numpy"
     sys.exit(-1)
 
-testing = True
+testing = False # learn only or test on NUMBER_OF_TEST_GAMES
+NUMBER_OF_TEST_GAMES = 20 # number of games to evaluates the tactical model on
 
 # TODO maxi refactor
 # TODO verify probas (sum to 1) and tables contents (bias? priors?)
-# TODO predict 20 sec before attack
 # TODO A (where happens the attack) comes from a distrib "where it is possible"
 # TODO new scores
 
-ADD_SMOOTH = 1.0 # Laplace smoothing, could be less than 1.0
+SECONDS_BEFORE = 0 # number of seconds before the attack to update state
+ADD_SMOOTH = 0.5 # Laplace smoothing, could be less than 1.0
 TACT_PARAM = 1.6 # power of the distance of units to/from regions
 # 1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
-WITH_DROP = False # with or without Drop as an attack type
+WITH_DROP = True # with or without Drop as an attack type
 INFER_DROP = True # with or without inference of drops
 if not WITH_DROP:
     INFER_DROP = False
 ALT_ECO_SCORE = False # compute an alternative eco score like the tactical one
 ECO_SCORE_PARA = 1.6 # power of the distance of workers to/from regions
-NUMBER_OF_TEST_GAMES = 20 # number of games to evaluates the tactical model on
 
 def select(state, player, inset):
     """ In the given 'state', returns the units in 'inset' of the 'player' """
@@ -44,8 +44,8 @@ def army(state, player):
     return select(state, player, unit_types.military_set)
 
 def compute_scores(state, player, dm, inset, scoring_f, t='Reg'):
-    """ computes the economical scores of all regions of type t and returns 
-    (scores_dict, total) """
+    """ computes the scores with the scoring_f function of all regions 
+    of type t and returns (scores_dict, total) """
     s = {}
     tot = 0.00000000001
     x = select(state, player, inset)
@@ -53,7 +53,7 @@ def compute_scores(state, player, dm, inset, scoring_f, t='Reg'):
         s[tmpr] = 0.0               # even though I could get(x, default)...
         for unit in x:
             if unit[t] == tmpr:
-                s[tmpr] += scoring_f(unit)
+                s[tmpr] += scoring_f(unit.name)
         tot += s[tmpr]
     return (s, tot)
 
@@ -121,14 +121,14 @@ def where_bins(s, bins):
 
 def tactic_distrib(score):
     # TODO revise distrib into true distrib?
-    bins = [0.0, 0.9651523609362167, 0.9760342259222318, 0.9824477540926082, 0.9879026329442978, 1.0] # equitable repartition of # of attacks in 5 bins
+    bins = [0.0, 0.9651523609362167, 0.9760342259222318, 0.9824477540926082, 0.9879026329442978, 1.0] # equitable repartition of numbers in 5 bins
     d = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0}
     d[where_bins(score, bins)] = 1.0
     return d
 
 def eco_distrib(score):
     # TODO revise distrib into true distrib?
-    bins = [0.0, 0.05, 0.66, 1.0] # no eco, small eco, more than 2/3rd of total
+    bins = [0.0, 0.05, 0.51, 1.0] # no eco, small eco, more than half of total
     d = {0: 0.0, 1: 0.0, 2: 0.0}
     d[where_bins(score, bins)] = 1.0
     return d
@@ -150,14 +150,14 @@ def score_ground(units):
 
 def detect_distrib(score):
     # TODO revise distrib into true distrib?
-    bins = [0.0, 0.99, 1.99, 100000.0] # none, one, many
+    bins = [0.0, 0.99, 2.99, 100000.0] # none, two, many
     d = {0: 0.0, 1: 0.0, 2: 0.0}
     d[where_bins(score, bins)] = 1.0
     return d
 
 def units_distrib(score): # score is given relative to attackers force
     # TODO revise distrib into true distrib?
-    bins = [0.0, 0.05, 0.5, 1.0e80] # no defense (20x smaller than attacker)
+    bins = [0.0, 0.1, 1.0, 1.0e80] # no defense (20x smaller than attacker)
     #small defense (up to 2x smaller than attacker's force), >2x => big defense
     d = {0: 0.0, 1: 0.0, 2: 0.0}
     d[where_bins(score, bins)] = 1.0
@@ -181,11 +181,22 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
     st = state_tools.GameState()
     st.track_loc(open(fname[:-3]+'rld'))
     battles = []
+    buf_lines = []
+    started = False
     f = open(fname)
     for line in f:
         line = line.rstrip('\r\n')
         obs.detect_observers(line)
-        st.update(line)
+        l = line.split(',')
+        if started and len(l) > 1:
+            time_sec = int(l[0])/24
+            buf_lines.append((time_sec, line))
+            while len(buf_lines) and buf_lines[0][0] + SECONDS_BEFORE <= time_sec:
+                st.update(buf_lines.pop(0)[1])
+        else:
+            st.update(line)
+        if 'Begin replay data:' in line:
+            started = True
         if 'IsAttacked' in line:
             tmpres = data_tools.parse_attacks(line)
             cdr = pm.get_CDR(tmpres[1][0], tmpres[1][1])
@@ -219,6 +230,9 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
                 s = {}
                 s_d, tot_d = compute_scores(st, defender, dm, unit_types.shoot_down_set, unit_types.score_unit, t=rt)
                 s_a, tot_a = compute_scores(st, attacker, dm, unit_types.ground_set, unit_types.score_unit, t=rt)
+                tmpLOL = s_d[k] / (0.1 + s_a[k])
+                if tmpLOL > 0.05 and tmpLOL < 0.5:
+                    print "lol", tmpLOL
                 for k in s_d:
                     s[k] = units_distrib(s_d[k] / (0.1 + s_a[k]))
                 tmp[rt]['ground'] = s
@@ -229,6 +243,19 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
                     s[k] = units_distrib(s_d[k] / (0.1 + s_a[k]))
                 tmp[rt]['air'] = s
 
+            print tmpres[0]
+            for rt in ['Reg', 'CDR']:
+                for k in tmp[rt]:
+                    print k,
+                    if rt == 'Reg':
+                        if tmp[rt][k][reg][0] < 1.0:
+                            print "lol",
+                        print tmp[rt][k][reg]
+                    else:
+                        if tmp[rt][k][cdr][0] < 1.0:
+                            print "lol",
+                        print tmp[rt][k][cdr]
+
             battles.append((tmpres[0], tmp, pr[attacker], {'Reg': reg, "CDR": cdr}))
             #              (list of types, dict of distribs, CDR, Reg)
     return battles
@@ -238,17 +265,28 @@ def extract_tests(fname, dm, pm=None):
     Extract tests situations from the file named fname,
     with the distance map (between regions) dm, and the positional mapper pm
     returns a list of dicts of regions scores:
-    [{'Reg': {score_type: {reg: distirb}},'CDR': {score_type: {reg: distirb}}}]
+    [{'Reg': {score_type: {reg: distrib}},'CDR': {score_type: {reg: distrib}}}]
     """
     obs = attack_tools.Observers()
     st = state_tools.GameState()
     st.track_loc(open(fname[:-3]+'rld'))
     tests = []
+    buf_lines = []
+    started = False
     f = open(fname)
     for line in f:
         line = line.rstrip('\r\n')
         obs.detect_observers(line)
-        st.update(line)
+        l = line.split(',')
+        if started and len(l) > 1:
+            time_sec = int(l[0])/24
+            buf_lines.append((time_sec, line))
+            while len(buf_lines) and (buf_lines[0][0] + SECONDS_BEFORE) <= time_sec:
+                st.update(buf_lines.pop(0)[1])
+        else:
+            st.update(line)
+        if 'Begin replay data:' in line:
+            started = True
         if 'IsAttacked' in line:
             units = data_tools.parse_dicts(line)
             units = obs.heuristics_remove_observers(units)
@@ -342,8 +380,9 @@ class TacticsMatchUp:
                 ax.set_xticklabels(["no eco", "low eco", "high eco"])
                 #print [tactics.EI_TI_B_knowing_A[rt][i,:,:] for i in ind]
                 s = [sum(sum(t[i,:,:,1])) for i in ind]
-                #print s
-                ax.bar(ind+width, s, width, color='r')
+                print t
+                print s
+                ax.bar(ind, s, width, color='r')
 
                 ax = fig.add_subplot(222)
                 ind = np.arange(5)
@@ -351,14 +390,18 @@ class TacticsMatchUp:
                 ax.set_xlabel("tactical value")
                 ax.set_xticklabels(["0", "1", "2", "3", "4"])
                 s = [sum(sum(t[:,i,:,1])) for i in ind]
-                ax.bar(ind+width, s, width, color='r')
+                print t
+                print s
+                ax.bar(ind, s, width, color='r')
 
                 ax = fig.add_subplot(223)
                 ind = np.arange(2)
                 ax.set_xticks(ind+width)
                 ax.set_xticklabels(["doesn't belong", "belong"])
                 s = [sum(sum(t[:,:,i,1])) for i in ind]
-                ax.bar(ind+width, s, width, color='r')
+                print t
+                print s
+                ax.bar(ind, s, width, color='r')
                 
                 #plt.show()
                 plt.savefig("where"+rt+".png")
@@ -374,8 +417,9 @@ class TacticsMatchUp:
                 ax.set_ylabel("P(Air)")
                 #ax.set_xticklabels(["", "", ""])
                 s = [sum(sum(t[i,:,:,1])) for i in ind]
-                #print s
-                ax.bar(ind+width, s, width, color='r')
+                print t
+                print s
+                ax.bar(ind, s, width, color='r')
 
                 ax = fig.add_subplot(322)
                 ind = np.arange(3)
@@ -383,8 +427,9 @@ class TacticsMatchUp:
                 ax.set_xlabel("ground defense level")
                 ax.set_ylabel("P(Ground)")
                 s = [sum(sum(t[:,i,:,0])) for i in ind]
+                print t
                 print s
-                ax.bar(ind+width, s, width, color='r')
+                ax.bar(ind, s, width, color='r')
 
                 ax = fig.add_subplot(323)
                 ind = np.arange(3)
@@ -392,8 +437,9 @@ class TacticsMatchUp:
                 ax.set_xlabel("ground defense level")
                 ax.set_ylabel("P(Invis)")
                 s = [sum(sum(t[:,i,:,2])) for i in ind]
+                print t
                 print s
-                ax.bar(ind+width, s, width, color='r')
+                ax.bar(ind, s, width, color='r')
 
                 ax = fig.add_subplot(324)
                 ind = np.arange(3)
@@ -401,8 +447,9 @@ class TacticsMatchUp:
                 ax.set_xlabel("invis defense level")
                 ax.set_ylabel("P(Invis)")
                 s = [sum(sum(t[:,:,i,2])) for i in ind]
+                print t
                 print s
-                ax.bar(ind+width, s, width, color='r')
+                ax.bar(ind, s, width, color='r')
 
                 if WITH_DROP:
                     ax = fig.add_subplot(325)
@@ -411,8 +458,9 @@ class TacticsMatchUp:
                     ax.set_xlabel("air defense level")
                     ax.set_ylabel("P(Drop)")
                     s = [sum(sum(t[i,:,:,3])) for i in ind]
+                    print t
                     print s
-                    ax.bar(ind+width, s, width, color='r')
+                    ax.bar(ind, s, width, color='r')
 
                     ax = fig.add_subplot(326)
                     ind = np.arange(3)
@@ -420,8 +468,9 @@ class TacticsMatchUp:
                     ax.set_xlabel("ground defense level")
                     ax.set_ylabel("P(Drop)")
                     s = [sum(sum(t[:,i,:,3])) for i in ind]
+                    print t
                     print s
-                    ax.bar(ind+width, s, width, color='r')
+                    ax.bar(ind, s, width, color='r')
 
                 #plt.show()
                 plt.savefig("how"+rt+".png")
@@ -534,10 +583,11 @@ class TacticalModel:
     def normalize(self):
         for rt in self.AD_GD_ID_knowing_H:
             for ind in range(len(self.n_how)):
-                self.AD_GD_ID_knowing_H[rt][:,:,:,ind] /= self.n_how[ind] + len(self.AD_GD_ID_knowing_H[rt])*len(self.AD_GD_ID_knowing_H[rt][0])*len(self.AD_GD_ID_knowing_H[rt][0][0])*ADD_SMOOTH
-            self.EI_TI_B_knowing_A[rt][:,:,:,1] /= self.n_battles + len(self.EI_TI_B_knowing_A[rt])*len(self.EI_TI_B_knowing_A[rt][0])*len(self.EI_TI_B_knowing_A[rt][0][0])*ADD_SMOOTH
-            self.EI_TI_B_knowing_A[rt][:,:,:,0] /= self.n_not_battles + len(self.EI_TI_B_knowing_A[rt])*len(self.EI_TI_B_knowing_A[rt][0])*len(self.EI_TI_B_knowing_A[rt][0][0])*ADD_SMOOTH
-        print "I've seen", int(self.n_battles), "battles"
+                self.AD_GD_ID_knowing_H[rt][:,:,:,ind] /= self.n_how[ind]/2 + len(self.AD_GD_ID_knowing_H[rt])*len(self.AD_GD_ID_knowing_H[rt][0])*len(self.AD_GD_ID_knowing_H[rt][0][0])*ADD_SMOOTH
+            self.EI_TI_B_knowing_A[rt][:,:,:,1] /= self.n_battles/2 + len(self.EI_TI_B_knowing_A[rt])*len(self.EI_TI_B_knowing_A[rt][0])*len(self.EI_TI_B_knowing_A[rt][0][0])*ADD_SMOOTH
+            self.EI_TI_B_knowing_A[rt][:,:,:,0] /= self.n_not_battles/2 + len(self.EI_TI_B_knowing_A[rt])*len(self.EI_TI_B_knowing_A[rt][0])*len(self.EI_TI_B_knowing_A[rt][0][0])*ADD_SMOOTH
+        print "I've seen", int(self.n_battles/2), "battles" # n_battles counted
+        # twice (both for CDR and Reg), n_how too
 
     def test(self, tests, results):
         if len(results) == 0:
