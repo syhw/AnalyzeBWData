@@ -12,8 +12,9 @@ except:
     sys.exit(-1)
 
 DEBUG_LEVEL = 0 # 0: no debug output, 1: some, 2: all
+HISTOGRAMS = True
 testing = True # learn only or test on NUMBER_OF_TEST_GAMES
-NUMBER_OF_TEST_GAMES = 2000 # number of games to evaluates the tactical model
+NUMBER_OF_TEST_GAMES = 10 # number of games to evaluates the tactical model
 # if this number is greater than the total number of games,
 # the test set will be the training set (/!\ BAD evaluation)
 
@@ -33,13 +34,15 @@ if not WITH_DROP:
     INFER_DROP = False
 ALT_ECO_SCORE = False # compute an alternative eco score like the tactical one
 ECO_SCORE_PARA = 1.6 # power of the distance of workers to/from regions
-SOFT_EVIDENCE_AD_GD = True # tells if we should use binary AD and GD
-bins_ad_gd = [0.0, 1.0] # tells the bins lower limits (quantiles) values
+SOFT_EVIDENCE_AD_GD = False # tells if we should use binary AD and GD
+bins_ad_gd = [0.0, 0.1, 0.5, 1.0] # tells the bins lower limits (quantiles) values
 if SOFT_EVIDENCE_AD_GD:
     bins_ad_gd = [0.0, 1.0]
 bins_detect = [0.0, 0.99, 1.99] # none, one, many detectors
 bins_tactical = [0.0, 0.9651523609362167, 0.9760342259222318, 0.9824477540926082, 0.9879026329442978] # equitable repartition of numbers in 5 bins
+#bins_tactical = [0.0, 0.66, 0.88, 0.96, 0.985] # equitable repartition of numbers in 5 bins
 bins_eco = [0.0, 0.05, 0.51] # no eco, small eco, more than half of total
+tactical_values = {'Reg': [], 'CDR': []}
 
 def select(state, player, inset):
     """ In the given 'state', returns the units in 'inset' of the 'player' """
@@ -84,6 +87,9 @@ def compute_tactical_scores(state, player, dm, t='Reg'):
             else:
                 s[tmpr] += unit_types.score_unit(unit.name)*(dm.max_dist**TACT_PARAM)
         tot += s[tmpr]
+    if HISTOGRAMS:
+        for r,v in s.iteritems():
+            tactical_values[t].append(1.0 - v/tot)
     return (s, tot)
 
 def compute_tactical_score(state, player, dm, r, t='Reg'):
@@ -671,11 +677,12 @@ class TacticalModel:
             print "Good where+how predictions:", good_where_how[rt]*1.0/len(results)
             total = 0
             good = 0
-            for attack_type,gh in good_how[rt].iteritems():
+            for attack_type in number_at:
                 total += number_at[attack_type]
+                gh = good_how[rt].get(attack_type, 0)
                 good += gh
-                print "Good how", attack_type, "predictions:", gh*1.0/number_at[attack_type], ":", good, "/", total
-            print "Good how predictions:", good*1.0/total
+                print "Good how", attack_type, "predictions:", gh*1.0/number_at[attack_type]/2, ":", gh, "/", number_at[attack_type]/2
+            print "Good how predictions:", good*1.0/total, good, "/", total/2
 
 
 if __name__ == "__main__":
@@ -690,6 +697,9 @@ if __name__ == "__main__":
     tests = []
     results = []
     tactics = TacticsMatchUp()
+    learn = True
+    if '-s' in sys.argv[1:]:
+        learn = False
     if testing:
         i = 0
         learngames = []
@@ -706,15 +716,25 @@ if __name__ == "__main__":
             print >> sys.stderr, "Test and train on the same (whole set) games"
             learngames = fnamelist
             testgames = fnamelist
-        for fname in learngames:
-            f = open(fname)
-            floc = open(fname[:-3]+'rld')
-            dm = DistancesMaps(floc)
-            floc.close()
-            print >> sys.stderr, "training on:", fname
-            pm = PositionMapper(dm, fname[:-3])
-            pr = data_tools.players_races(f)
-            tactics.count_battles(extract_tactics_battles(fname, pr, dm, pm))
+
+        # Learning
+        if learn == False:
+            try:
+                tactics = pickle.load(open('models.pickle', 'r'))
+            except:
+                learn = True
+        if learn == True:
+            for fname in learngames:
+                f = open(fname)
+                floc = open(fname[:-3]+'rld')
+                dm = DistancesMaps(floc)
+                floc.close()
+                print >> sys.stderr, "training on:", fname
+                pm = PositionMapper(dm, fname[:-3])
+                pr = data_tools.players_races(f)
+                tactics.count_battles(extract_tactics_battles(fname, pr, dm, pm))
+
+        # Testing
         for fname in testgames:
             f = open(fname)
             floc = open(fname[:-3]+'rld')
@@ -726,21 +746,54 @@ if __name__ == "__main__":
             tests.extend(extract_tests(fname, dm, pm))
             results.extend(extract_tactics_battles(fname, pr, dm, pm))
     else:
-        for fname in fnamelist:
-            f = open(fname)
-            floc = open(fname[:-3]+'rld')
-            dm = DistancesMaps(floc)
-            floc.close()
-            print >> sys.stderr, fname
-            pm = PositionMapper(dm, fname[:-3])
-            pr = data_tools.players_races(f)
-            tactics.count_battles(extract_tactics_battles(fname, pr, dm, pm))
+        # Learning only
+        if learn == False:
+            try:
+                tactics = pickle.load(open('models.pickle', 'r'))
+            except:
+                learn = True
+        if learn == True:
+            for fname in fnamelist:
+                f = open(fname)
+                floc = open(fname[:-3]+'rld')
+                dm = DistancesMaps(floc)
+                floc.close()
+                print >> sys.stderr, fname
+                pm = PositionMapper(dm, fname[:-3])
+                pr = data_tools.players_races(f)
+                tactics.count_battles(extract_tactics_battles(fname, pr, dm, pm))
+
     tactics.normalize()
+    if '-s' in sys.argv[1:]:
+        pickle.dump(tactics, open('models.pickle', 'w'))
     if testing:
         tactics.test(tests, results)
     if DEBUG_LEVEL > 0:
         print tactics
     if '-p' in sys.argv[1:]:
         tactics.plot_tables()
+
+    if HISTOGRAMS:
+        import matplotlib.pyplot as plt
+        plt.figure()
+        n, bins, patches = plt.hist(tactical_values['Reg'],5)
+        plt.savefig("histTacticalReg.png")
+        print bins
+        plt.figure()
+        n, bins, patches = plt.hist(tactical_values['CDR'],5)
+        plt.savefig("histTacticalCDR.png")
+        print bins
+        plt.figure()
+        tactical_values['Reg'].sort()
+        t = tactical_values['Reg']
+        bins = [0.0, t[int(len(t)*0.2)], t[int(len(t)*0.4)], t[int(len(t)*0.6)], t[int(len(t)*0.8)], 1.0]
+        plt.hist(tactical_values['Reg'], bins)
+        plt.savefig("myhistTacticalReg.png")
+        plt.figure()
+        tactical_values['CDR'].sort()
+        t = tactical_values['CDR']
+        bins = [0.0, t[int(len(t)*0.2)], t[int(len(t)*0.4)], t[int(len(t)*0.6)], t[int(len(t)*0.8)], 1.0]
+        plt.hist(tactical_values['CDR'], bins)
+        plt.savefig("myhistTacticalCDR.png")
 
 
