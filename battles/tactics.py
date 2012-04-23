@@ -249,6 +249,10 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
                 for k in s:
                     s[k] = tactic_distrib(s[k]/tot)
                 tmp[rt]['tactic'] = s
+                s, tot = compute_tactical_scores(st, attacker, dm, t=rt)
+                for k in s:
+                    s[k] = tactic_distrib(s[k]/tot)
+                tmp[rt]['atactic'] = s
                 tmp[rt]['belong'] = {}
                 for r in dm.list_regions(rt):
                     tmp[rt]['belong'][r] = belong_distrib(r, defender, attacker, st, dm, t=rt)
@@ -327,6 +331,10 @@ def extract_tests(fname, dm, pm=None):
                 for k in s:
                     s[k] = tactic_distrib(s[k]/tot)
                 tmp[rt]['tactic'] = s
+                s, tot = compute_tactical_scores(st, attacker, dm, t=rt)
+                for k in s:
+                    s[k] = tactic_distrib(s[k]/tot)
+                tmp[rt]['atactic'] = s
                 tmp[rt]['belong'] = {}
                 for r in dm.list_regions(rt):
                     tmp[rt]['belong'][r] = belong_distrib(r, defender, attacker, st, dm, rt)
@@ -394,9 +402,9 @@ class TacticsMatchUp:
         for race,m in self.models.iteritems():
             if m.n_battles['Reg'] <= 0.0 or m.n_battles['CDR'] <= 0.0:
                 continue
-            for rt,t in m.EI_TI_B_knowing_A.iteritems():
+            for rt,t in m.EI_TI_B_ATI_knowing_A.iteritems():
                 if DEBUG_LEVEL > 1:
-                    print "Total sum P(EI,TI,B|A)", [sum(sum(sum(t[:,:,:,i]))) for i in range(2)]
+                    print "Total sum P(EI,TI,B,ATI|A)", [sum(sum(sum(sum(t[:,:,:,i])))) for i in range(2)]
                 fig = plt.figure()
                 fig.subplots_adjust(wspace=0.3, hspace=0.6)
 
@@ -405,7 +413,7 @@ class TacticsMatchUp:
                 width = 0.5
                 ax.set_xticks(ind+width)
                 ax.set_xticklabels(["no eco", "low eco", "high eco"])
-                s = [sum(sum(t[i,:,:,1])) for i in ind]
+                s = [sum(sum(sum(t[i,:,:,:,1]))) for i in ind]
                 #print s
                 ax.bar(ind, s, width, color='r')
 
@@ -414,7 +422,7 @@ class TacticsMatchUp:
                 ax.set_xticks(ind+width)
                 ax.set_xlabel("tactical value")
                 ax.set_xticklabels(["0", "1", "2", "3", "4"])
-                s = [sum(sum(t[:,i,:,1])) for i in ind]
+                s = [sum(sum(sum(t[:,i,:,:,1]))) for i in ind]
                 #print s
                 ax.bar(ind, s, width, color='r')
 
@@ -422,7 +430,7 @@ class TacticsMatchUp:
                 ind = np.arange(2)
                 ax.set_xticks(ind+width)
                 ax.set_xticklabels(["doesn't belong", "belong"])
-                s = [sum(sum(t[:,:,i,1])) for i in ind]
+                s = [sum(sum(sum(t[:,:,i,:,1]))) for i in ind]
                 #print s
                 ax.bar(ind, s, width, color='r')
                 
@@ -525,16 +533,16 @@ class TacticalModel:
     """
 
     def __init__(self):
-        # EI_TI_B_knowing_A[rt][ei][ti][b] = P(ei,ti,b | A[=0,1])
+        # EI_TI_B_ATI_knowing_A[rt][ei][ti][b] = P(ei,ti,b | A[=0,1])
         # AD_GD_ID_knowing_H[rt][ad][gd][id] = P(ad,gd,id | H[=ground/air/drop/invis])
-        self.EI_TI_B_knowing_A = {}
+        self.EI_TI_B_ATI_knowing_A = {}
         self.AD_GD_ID_knowing_H = {}
         self.size_H = 3
         if WITH_DROP:
             self.size_H = 4
         for rt in ['Reg', 'CDR']:
-            self.EI_TI_B_knowing_A[rt] = np.ndarray(shape=(len(bins_eco),len(bins_tactical),2,2), dtype='float')
-            self.EI_TI_B_knowing_A[rt].fill(ADD_SMOOTH)
+            self.EI_TI_B_ATI_knowing_A[rt] = np.ndarray(shape=(len(bins_eco),len(bins_tactical),2,len(bins_tactical),2), dtype='float')
+            self.EI_TI_B_ATI_knowing_A[rt].fill(ADD_SMOOTH)
             self.AD_GD_ID_knowing_H[rt] = np.ndarray(shape=(len(bins_ad_gd),len(bins_ad_gd),len(bins_detect),self.size_H), dtype='float')
             self.AD_GD_ID_knowing_H[rt].fill(ADD_SMOOTH)
         self.n_battles = {'Reg': 0.0, 'CDR': 0.0}
@@ -549,7 +557,7 @@ class TacticalModel:
         for rt in ['Reg', 'CDR']:
             s += "\nRegion type" + rt + "\n"
             s += "*** P(EI, TI, B | A) ***\n"
-            s += self.EI_TI_B_knowing_A[rt].__repr__() + '\n'
+            s += self.EI_TI_B_ATI_knowing_A[rt].__repr__() + '\n'
             s += "*** P(AD, GD, ID | H) ***\n"
             s += self.AD_GD_ID_knowing_H[rt].__repr__() + '\n'
         return s
@@ -570,23 +578,25 @@ class TacticalModel:
     
     def count_battle(self, b, rt):
         """
-        fills EI_TI_B_knowing_A[rt] and AD_GD_ID_knowing_H[rt] according to b
+        fills EI_TI_B_ATI_knowing_A[rt] and AD_GD_ID_knowing_H[rt] according to b
         """
         rnumber = b[-1][rt]
         for keco,veco in b[1][rt]['eco'][rnumber].iteritems():
             for ktac,vtac in b[1][rt]['tactic'][rnumber].iteritems():
                 for kbel,vbel in b[1][rt]['belong'][rnumber].iteritems():
-                    tmp = veco*vtac*vbel
-                    self.EI_TI_B_knowing_A[rt][keco, ktac, kbel, 1] += tmp 
-                    self.n_battles[rt] += tmp
+                    for katac,vatac in b[1][rt]['atactic'][rnumber].iteritems():
+                        tmp = veco*vtac*vbel*vatac
+                        self.EI_TI_B_ATI_knowing_A[rt][keco, ktac, kbel, katac, 1] += tmp 
+                        self.n_battles[rt] += tmp
         for r in b[1][rt]['eco']:
             if r != rnumber:
                 for keco,veco in b[1][rt]['eco'][r].iteritems():
                     for ktac,vtac in b[1][rt]['tactic'][r].iteritems():
                         for kbel,vbel in b[1][rt]['belong'][r].iteritems():
-                            tmp = veco*vtac*vbel
-                            self.EI_TI_B_knowing_A[rt][keco, ktac, kbel, 0] += tmp 
-                            self.n_not_battles[rt] += tmp
+                            for katac,vatac in b[1][rt]['atactic'][r].iteritems():
+                                tmp = veco*vtac*vbel*vatac
+                                self.EI_TI_B_ATI_knowing_A[rt][keco, ktac, kbel, katac, 0] += tmp 
+                                self.n_not_battles[rt] += tmp
 
         for attack_type in b[0]:
             for kair,vair in b[1][rt]['air'][rnumber].iteritems():
@@ -605,21 +615,21 @@ class TacticalModel:
             self.H[rt] = [self.n_how[rt][i]/sum(self.n_how[rt]) for i in range(self.size_H)]
             for ind in range(len(self.n_how[rt])):
                 self.AD_GD_ID_knowing_H[rt][:,:,:,ind] /= self.n_how[rt][ind] + len(self.AD_GD_ID_knowing_H[rt])*len(self.AD_GD_ID_knowing_H[rt][0])*len(self.AD_GD_ID_knowing_H[rt][0][0])*ADD_SMOOTH
-            #self.EI_TI_B_knowing_A[rt][:,:,:,1] /= sum(sum(sum(self.EI_TI_B_knowing_A[rt][:,:,:,1])))
-            self.EI_TI_B_knowing_A[rt][:,:,:,1] /= len(self.EI_TI_B_knowing_A[rt])*len(self.EI_TI_B_knowing_A[rt][0])*len(self.EI_TI_B_knowing_A[rt][0][0])*ADD_SMOOTH + self.n_battles[rt]
-            #self.EI_TI_B_knowing_A[rt][:,:,:,0] /= sum(sum(sum(self.EI_TI_B_knowing_A[rt][:,:,:,0])))
-            self.EI_TI_B_knowing_A[rt][:,:,:,0] /= len(self.EI_TI_B_knowing_A[rt])*len(self.EI_TI_B_knowing_A[rt][0])*len(self.EI_TI_B_knowing_A[rt][0][0])*ADD_SMOOTH + self.n_not_battles[rt]
+            #self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,1] /= sum(sum(sum(sum(self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,1]))))
+            self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,1] /= len(self.EI_TI_B_ATI_knowing_A[rt])*len(self.EI_TI_B_ATI_knowing_A[rt][0])*len(self.EI_TI_B_ATI_knowing_A[rt][0][0])*len(self.EI_TI_B_ATI_knowing_A[rt][0][0][0])*ADD_SMOOTH + self.n_battles[rt]
+            #self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,0] /= sum(sum(sum(sum(self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,0]))))
+            self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,0] /= len(self.EI_TI_B_ATI_knowing_A[rt])*len(self.EI_TI_B_ATI_knowing_A[rt][0])*len(self.EI_TI_B_ATI_knowing_A[rt][0][0])*len(self.EI_TI_B_ATI_knowing_A[rt][0][0][0])*ADD_SMOOTH + self.n_not_battles[rt]
         print "I've seen", int(self.n_battles['Reg']), "Reg battles" # n_battles counted
         print "I've seen", int(self.n_battles['CDR']), "CDR battles" # n_battles counted
         # twice (both for CDR and Reg), n_how too
 
-    def ask_A(self, rt='Reg', EI=-1, TI=-1, B=-1, A=1):
+    def ask_A(self, rt='Reg', EI=-1, TI=-1, B=-1, ATI=-1, A=1):
         """ 
         returns the P(A|EI,TI,B) with given values, for all -1 values,
         it just sums on it (for instance, B=-1 means:
         P(A|EI,TI) = \sum_B[P(EI,TI,B|A).P(A)] / \sum_{A,B}[P(EI,TI,B|A).P(A)]
         """
-        t = self.EI_TI_B_knowing_A[rt]
+        t = self.EI_TI_B_ATI_knowing_A[rt]
         P_A = [1.0 - self.A[rt], self.A[rt]]
         if EI == -1:
             t = sum(t)
@@ -633,6 +643,10 @@ class TacticalModel:
             t = sum(t)
         else:
             t = t[B]
+        if ATI == -1:
+            t = sum(t)
+        else:
+            t = t[ATI]
         if A == -1:
             return np.array([t[i]*P_A[i] for i in range(2)]) / sum([t[i]*P_A[i] for i in range(2)])
         else:
@@ -686,14 +700,15 @@ class TacticalModel:
                     for es in t[rt]['eco'][r]:
                         for ts in t[rt]['tactic'][r]:
                             for bs in t[rt]['belong'][r]:
-                                tmp_num += t[rt]['eco'][r][es] \
-                                        * t[rt]['tactic'][r][ts] \
-                                        * t[rt]['belong'][r][bs] \
-                                        * self.EI_TI_B_knowing_A[rt][es,ts,bs,1]
-                                tmp_denum += t[rt]['eco'][r][es] \
-                                        * t[rt]['tactic'][r][ts] \
-                                        * t[rt]['belong'][r][bs] \
-                                        * self.EI_TI_B_knowing_A[rt][es,ts,bs,0]
+                                for ats in t[rt]['atactic'][r]:
+                                    tmp_num += t[rt]['eco'][r][es] \
+                                            * t[rt]['tactic'][r][ts] \
+                                            * t[rt]['belong'][r][bs] \
+                                            * self.EI_TI_B_ATI_knowing_A[rt][es,ts,bs,ats,1]
+                                    tmp_denum += t[rt]['eco'][r][es] \
+                                            * t[rt]['tactic'][r][ts] \
+                                            * t[rt]['belong'][r][bs] \
+                                            * self.EI_TI_B_ATI_knowing_A[rt][es,ts,bs,ats,0]
                     probabilities_where[r] = tmp_num/(tmp_num+tmp_denum)
                     if probabilities_where[r] > max_where:
                         max_where = probabilities_where[r]
@@ -865,10 +880,3 @@ if __name__ == "__main__":
         plt.hist(tactical_values['CDR'], bins)
         plt.savefig("myhistTacticalCDR.png")
 
-    #t = tactics.models['T'].EI_TI_B_knowing_A['Reg']
-    #a = tactics.models['T'].A['Reg']
-    print [tactics.models['T'].ask_A('Reg', EI=1, TI=i, B=1) for i in range(5)]
-    print [tactics.models['T'].ask_A('Reg', EI=1, TI=i, B=1, A=-1) for i in range(5)]
-    print [tactics.models['T'].ask_H('Reg', AD=1, GD=i, ID=1, H=0) for i in range(3)]
-    print tactics.models['T'].ask_H('Reg', AD=2, GD=2, ID=2, H=-1)
-    #def ask_A(self, rt='Reg', EI=-1, TI=-1, B=-1, A=1):
