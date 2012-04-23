@@ -14,7 +14,7 @@ except:
 DEBUG_LEVEL = 1 # 0: no debug output, 1: some, 2: all
 HISTOGRAMS = True
 testing = True # learn only or test on NUMBER_OF_TEST_GAMES
-NUMBER_OF_TEST_GAMES = 10 # number of games to evaluates the tactical model
+NUMBER_OF_TEST_GAMES = 20 # number of games to evaluates the tactical model
 # if this number is greater than the total number of games,
 # the test set will be the training set (/!\ BAD evaluation)
 
@@ -26,7 +26,7 @@ NUMBER_OF_TEST_GAMES = 10 # number of games to evaluates the tactical model
 # TODO new evaluation metrics
 
 SECONDS_BEFORE = 0 # number of seconds before the attack to update state
-ADD_SMOOTH = 0.0 # Laplace smoothing, could be less than 1.0
+ADD_SMOOTH = 1.0 # Laplace smoothing, could be less than 1.0
 TACT_PARAM = -1.6 # power of the distance of units to/from regions
 # 1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
@@ -44,6 +44,7 @@ bins_detect = [0.0, 0.99, 1.99] # none, one, many detectors
 bins_tactical = [0.0, 0.1, 0.2, 0.4]
 bins_eco = [0.0, 0.05, 0.51] # no eco, small eco, more than half of total
 tactical_values = {'Reg': [], 'CDR': []}
+WITH_DISTANCE_RANKING = True # with or without distance as an evaluation metric
 
 def select(state, player, inset):
     """ In the given 'state', returns the units in 'inset' of the 'player' """
@@ -364,7 +365,10 @@ def extract_tests(fname, dm, pm=None):
                 for k in s_d:
                     s[k] = units_distrib(s_d[k] / (0.1 + s_a[k]))
                 tmp[rt]['air'] = s
-            tests.append(tmp)
+            if WITH_DISTANCE_RANKING:
+                tests.append((tmp, dm))
+            else:
+                tests.append((tmp, 0))
     return tests
 
 class TacticsMatchUp:
@@ -407,16 +411,6 @@ class TacticsMatchUp:
             self.models[k].test(td[k], rd[k])
 
     def plot_tables(self):
-        #P(A=1|EI=1,B=1) axes for values of TI
-        #def ask_A(self, rt='Reg', EI=-1, TI=-1, B=-1, ATI=-1, A=1):
-        t = tactics.models['T'].EI_TI_B_ATI_knowing_A['Reg']
-        print [tactics.models['T'].ask_A('Reg', EI=1, TI=i, B=1, ATI=-1, A=1) for i in range(len(bins_tactical))]
-        a = tactics.models['T'].A['Reg']
-        num1 = np.array([sum(t[1,i,1,:,1])*a for i in range(len(bins_tactical))])
-        num2 = np.array([sum(t[1,i,1,:,0])*(1.0-a) for i in range(len(bins_tactical))])
-        print "P(A=1|EI=1,B=1) axes for values of TI"
-        print num1/(num1+num2)
-
         import matplotlib.pyplot as plt
 
         for race,m in self.models.iteritems():
@@ -588,8 +582,8 @@ class TacticalModel:
         self.n_not_battles = {'Reg': 0.0, 'CDR': 0.0}
         self.A = {'Reg': 0.5, 'CDR': 0.5}
         self.n_how = {'Reg': [0.0 for i in range(self.size_H)], 'CDR': [0.0 for i in range(self.size_H)]}
-        self.H = {'Reg': [1.0/self.size_H for i in range(self.size_H)], 
-                'CDR': [1.0/self.size_H for i in range(self.size_H)]}
+        self.H = {'Reg': np.array([1.0/self.size_H for i in range(self.size_H)]),
+                'CDR': np.array([1.0/self.size_H for i in range(self.size_H)])}
 
     def __repr__(self):
         s = ""
@@ -725,33 +719,41 @@ class TacticalModel:
         good_where = {'Reg': 0, 'CDR': 0}
         number_at = {} # number of attacks for each attack type
         good_how = {'Reg': {}, 'CDR': {}}
-        rank_where = {'Reg': 0, 'CDR': 0}
-        proba_where = {'Reg': 0.0, 'CDR': 0.0}
+        rank_where = {'Reg': 0, 'CDR': 0} # rank 0 is the first one
+        sum_max_rank = {'Reg': 0, 'CDR': 0} # rank 0 is the first one
+        percent_of_good_prob = {'Reg': 0.0, 'CDR': 0.0}
         distance_where = {'Reg': 0.0, 'CDR': 0.0}
         for i,t in enumerate(tests):
+            t = t[0]
             for rt in t: # region types
+                # P(A) = \sum{EI,TI,B,ATI}[P(EI,TI,B,ATI|A)P(A)]
+                #             / \sum{A,EI,TI,B,ATI}[P(EI,TI,B,ATI|A)P(A)]
                 probabilities_where = {}
+                probs_where = []
                 max_where = -1.0
                 where = 0
                 for r in t[rt]['eco']:
-                    tmp_num = 0.0
-                    tmp_denum = 0.0
+                    tmp_A = 0.0
+                    tmp_notA = 0.0
                     for es in t[rt]['eco'][r]:
                         for ts in t[rt]['tactic'][r]:
                             for bs in t[rt]['belong'][r]:
                                 for ats in t[rt]['atactic'][r]:
-                                    tmp_num += t[rt]['eco'][r][es] \
-                                            * t[rt]['tactic'][r][ts] \
-                                            * t[rt]['belong'][r][bs] \
-                                            * self.EI_TI_B_ATI_knowing_A[rt][es,ts,bs,ats,1]
-                                    tmp_denum += t[rt]['eco'][r][es] \
-                                            * t[rt]['tactic'][r][ts] \
-                                            * t[rt]['belong'][r][bs] \
-                                            * self.EI_TI_B_ATI_knowing_A[rt][es,ts,bs,ats,0]
-                    probabilities_where[r] = tmp_num/(tmp_num+tmp_denum)
+                                    eco = t[rt]['eco'][r][es]
+                                    tactic = t[rt]['tactic'][r][ts]
+                                    belong = t[rt]['belong'][r][bs]
+                                    atactic = t[rt]['atactic'][r][ats]
+                                    tmp_A += eco*tactic*belong*atactic\
+                                            * self.EI_TI_B_ATI_knowing_A[rt][es,ts,bs,ats,1]*self.A[rt]
+                                    tmp_notA += eco*tactic*belong*atactic\
+                                            * self.EI_TI_B_ATI_knowing_A[rt][es,ts,bs,ats,0]*(1.0 - self.A[rt])
+                    probabilities_where[r] = tmp_A / (tmp_A+tmp_notA)
+                    probs_where.append(probabilities_where[r])
                     if probabilities_where[r] > max_where:
                         max_where = probabilities_where[r]
                         where = r
+                # P(H) = \sum{AD,GD,ID}[P(AD,GD,ID|H).P(H)]
+                #             / \sum{H,AD,GD,ID}[P(AD,GD,ID|H).P(H)]
                 probabilities_how = {}
                 probabilities_where_how = {}
                 max_where_how = -1.0
@@ -767,9 +769,9 @@ class TacticalModel:
                                 tmp_H_dist += t[rt]['air'][r][ais] \
                                         * t[rt]['ground'][r][gs] \
                                         * t[rt]['detect'][r][ds] \
-                                        * self.AD_GD_ID_knowing_H[rt][ais,gs,ds,:]
-                    probabilities_how[r] = tmp_H_dist
-                    tmp = tmp_H_dist * probabilities_where[r]
+                                        * (self.AD_GD_ID_knowing_H[rt][ais,gs,ds,:]*self.H[rt])
+                    probabilities_how[r] = tmp_H_dist/sum(tmp_H_dist)
+                    tmp = np.array(tmp_H_dist) * probabilities_where[r]
                     for h,prob in enumerate(tmp):
                         if prob > max_where_how:
                             max_where_how = prob
@@ -789,19 +791,30 @@ class TacticalModel:
                     good_where_how[rt] += 1
                 if results[i][-1][rt] == where:
                     good_where[rt] += 1
+                probs_where.sort()
+                rank_where[rt] += probs_where.index(probabilities_where[results[i][-1][rt]])
+                sum_max_rank[rt] += len(probs_where)
+                percent_of_good_prob[rt] += probabilities_where[results[i][-1][rt]]/probabilities_where[where]
+                if WITH_DISTANCE_RANKING and type(tests[i][1]) != int:
+                    distance_where[rt] += tests[i][1].dist(where, results[i][-1][rt], rt)
+
             #print results[i] # real battle that happened
         for rt in good_where_how:
             print "Type:", rt
             print "Good where predictions:", good_where[rt]*1.0/len(results)
             print "Good where+how predictions:", good_where_how[rt]*1.0/len(results)
+            print "Mean rank where predictions:", rank_where[rt]*1.0/len(results), "mean max rank:", sum_max_rank[rt]*1.0/len(results)
+            print "Mean prob[where_happened] / prob[best_guest] where predictions:", percent_of_good_prob[rt]*1.0/len(results)
+            print "Mean distance where predictions:", distance_where[rt]*1.0/len(results)
             total = 0
             good = 0
             for attack_type in number_at:
-                total += number_at[attack_type]
+                nat = number_at[attack_type] / 2 # counted both for Reg and CDR
+                total += nat
                 gh = good_how[rt].get(attack_type, 0)
                 good += gh
-                print "Good how", attack_type, "predictions:", gh*1.0/(number_at[attack_type]/2), ":", gh, "/", number_at[attack_type]/2
-            print "Good how predictions:", good*1.0/(total/2), good, "/", total/2
+                print "Good how", attack_type, "predictions:", gh*1.0/nat, ":", gh, "/", nat
+            print "Good how predictions:", good*1.0/total, ":", good, "/", total
 
 
 if __name__ == "__main__":
