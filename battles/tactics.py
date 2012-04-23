@@ -529,19 +529,20 @@ class TacticalModel:
         # AD_GD_ID_knowing_H[rt][ad][gd][id] = P(ad,gd,id | H[=ground/air/drop/invis])
         self.EI_TI_B_knowing_A = {}
         self.AD_GD_ID_knowing_H = {}
-        size_H = 3
+        self.size_H = 3
         if WITH_DROP:
-            size_H = 4
+            self.size_H = 4
         for rt in ['Reg', 'CDR']:
             self.EI_TI_B_knowing_A[rt] = np.ndarray(shape=(len(bins_eco),len(bins_tactical),2,2), dtype='float')
             self.EI_TI_B_knowing_A[rt].fill(ADD_SMOOTH)
-            self.AD_GD_ID_knowing_H[rt] = np.ndarray(shape=(len(bins_ad_gd),len(bins_ad_gd),len(bins_detect),size_H), dtype='float')
+            self.AD_GD_ID_knowing_H[rt] = np.ndarray(shape=(len(bins_ad_gd),len(bins_ad_gd),len(bins_detect),self.size_H), dtype='float')
             self.AD_GD_ID_knowing_H[rt].fill(ADD_SMOOTH)
         self.n_battles = {'Reg': 0.0, 'CDR': 0.0}
         self.n_not_battles = {'Reg': 0.0, 'CDR': 0.0}
-        self.A = {'Reg': 1.0, 'CDR': 1.0}
-        self.n_how = {'Reg': [0.0 for i in range(size_H)], 'CDR': [0.0 for i in range(size_H)]}
-                # w/o drop: ground/air/invisible
+        self.A = {'Reg': 0.5, 'CDR': 0.5}
+        self.n_how = {'Reg': [0.0 for i in range(self.size_H)], 'CDR': [0.0 for i in range(self.size_H)]}
+        self.H = {'Reg': [1.0/self.size_H for i in range(self.size_H)], 
+                'CDR': [1.0/self.size_H for i in range(self.size_H)]}
 
     def __repr__(self):
         s = ""
@@ -601,6 +602,7 @@ class TacticalModel:
             return
         for rt in self.AD_GD_ID_knowing_H:
             self.A[rt] = self.n_battles[rt]/(self.n_battles[rt] + self.n_not_battles[rt])
+            self.H[rt] = [self.n_how[rt][i]/sum(self.n_how[rt]) for i in range(self.size_H)]
             for ind in range(len(self.n_how[rt])):
                 self.AD_GD_ID_knowing_H[rt][:,:,:,ind] /= self.n_how[rt][ind] + len(self.AD_GD_ID_knowing_H[rt])*len(self.AD_GD_ID_knowing_H[rt][0])*len(self.AD_GD_ID_knowing_H[rt][0][0])*ADD_SMOOTH
             #self.EI_TI_B_knowing_A[rt][:,:,:,1] /= sum(sum(sum(self.EI_TI_B_knowing_A[rt][:,:,:,1])))
@@ -618,28 +620,50 @@ class TacticalModel:
         P(A|EI,TI) = \sum_B[P(EI,TI,B|A).P(A)] / \sum_{A,B}[P(EI,TI,B|A).P(A)]
         """
         t = self.EI_TI_B_knowing_A[rt]
-        P_A = self.A[rt]
-        a1 = t[:,:,:,A]*P_A
-        a0 = t[:,:,:,1-A]*(1-P_A)
+        P_A = [1.0 - self.A[rt], self.A[rt]]
         if EI == -1:
-            a1 = sum(a1)
-            a0 = sum(a0)
+            t = sum(t)
         else:
-            a1 = a1[EI]
-            a0 = a0[EI]
+            t = t[EI]
         if TI == -1:
-            a1 = sum(a1)
-            a0 = sum(a0)
+            t = sum(t)
         else:
-            a1 = a1[TI]
-            a0 = a0[TI]
+            t = t[TI]
         if B == -1:
-            a1 = sum(a1)
-            a0 = sum(a0)
+            t = sum(t)
         else:
-            a1 = a1[B]
-            a0 = a0[B]
-        return a1/(a1+a0)
+            t = t[B]
+        if A == -1:
+            return np.array([t[i]*P_A[i] for i in range(2)]) / sum([t[i]*P_A[i] for i in range(2)])
+        else:
+            return t[A]*P_A[A] / sum([t[i]*P_A[i] for i in range(2)])
+
+    def ask_H(self, rt='Reg', AD=-1, GD=-1, ID=-1, H=-1):
+        """ 
+        returns the P(H|AD,GD,ID) with given values, for all -1 values,
+        it just sums on it (c.f. ask_A above)
+        P(H|AD,GD,ID) = \sum_{AD,GD,ID}[P(AD,GD,ID|H).P(H)] 
+                / \sum_{H,AD,GD,ID}[P(AD,GD,ID|H).P(H)]
+        """
+        t = self.AD_GD_ID_knowing_H[rt]
+        P_H = self.H[rt]
+        if AD == -1:
+            t = sum(t)
+        else:
+            t = t[AD]
+        if GD == -1:
+            t = sum(t)
+        else:
+            t = t[GD]
+        if ID == -1:
+            t = sum(t)
+        else:
+            t = t[ID]
+        if H == -1:
+            return np.array([t[i]*P_H[i] for i in range(self.size_H)]) / sum([t[i]*P_H[i] for i in range(self.size_H)])
+
+        else:
+            return t[H]*P_H[H] / sum([t[i]*P_H[i] for i in range(self.size_H)])
 
     def test(self, tests, results):
         if len(results) == 0:
@@ -840,3 +864,11 @@ if __name__ == "__main__":
         print bins
         plt.hist(tactical_values['CDR'], bins)
         plt.savefig("myhistTacticalCDR.png")
+
+    #t = tactics.models['T'].EI_TI_B_knowing_A['Reg']
+    #a = tactics.models['T'].A['Reg']
+    print [tactics.models['T'].ask_A('Reg', EI=1, TI=i, B=1) for i in range(5)]
+    print [tactics.models['T'].ask_A('Reg', EI=1, TI=i, B=1, A=-1) for i in range(5)]
+    print [tactics.models['T'].ask_H('Reg', AD=1, GD=i, ID=1, H=0) for i in range(3)]
+    print tactics.models['T'].ask_H('Reg', AD=2, GD=2, ID=2, H=-1)
+    #def ask_A(self, rt='Reg', EI=-1, TI=-1, B=-1, A=1):
