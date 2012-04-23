@@ -11,7 +11,7 @@ except:
     print "you need numpy"
     sys.exit(-1)
 
-DEBUG_LEVEL = 0 # 0: no debug output, 1: some, 2: all
+DEBUG_LEVEL = 1 # 0: no debug output, 1: some, 2: all
 HISTOGRAMS = True
 testing = True # learn only or test on NUMBER_OF_TEST_GAMES
 NUMBER_OF_TEST_GAMES = 10 # number of games to evaluates the tactical model
@@ -26,8 +26,8 @@ NUMBER_OF_TEST_GAMES = 10 # number of games to evaluates the tactical model
 # TODO new evaluation metrics
 
 SECONDS_BEFORE = 0 # number of seconds before the attack to update state
-ADD_SMOOTH = 0.5 # Laplace smoothing, could be less than 1.0
-TACT_PARAM = 1.6 # power of the distance of units to/from regions
+ADD_SMOOTH = 0.0 # Laplace smoothing, could be less than 1.0
+TACT_PARAM = -2.0 # power of the distance of units to/from regions
 # 1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
 WITH_DROP = True # with or without Drop as an attack type
@@ -37,11 +37,12 @@ if not WITH_DROP:
 ALT_ECO_SCORE = False # compute an alternative eco score like the tactical one
 ECO_SCORE_PARA = 1.6 # power of the distance of workers to/from regions
 SOFT_EVIDENCE_AD_GD = False # tells if we should use binary AD and GD
-bins_ad_gd = [0.0, 0.1, 0.5, 1.0] # tells the bins lower limits (quantiles) values
+bins_ad_gd = [0.0, 0.1, 0.5] # tells the bins lower limits (quantiles) values
 if SOFT_EVIDENCE_AD_GD:
     bins_ad_gd = [0.0, 1.0]
 bins_detect = [0.0, 0.99, 1.99] # none, one, many detectors
-bins_tactical = [0.0, 0.9651523609362167, 0.9760342259222318, 0.9824477540926082, 0.9879026329442978] # equitable repartition of numbers in 5 bins
+#bins_tactical = [0.0, 0.9651523609362167, 0.9760342259222318, 0.9824477540926082, 0.9879026329442978] # equitable repartition of numbers in 5 bins
+bins_tactical = [0.0, 0.2, 0.4, 0.6, 0.8]
 #bins_tactical = [0.0, 0.66, 0.88, 0.96, 0.985] # equitable repartition of numbers in 5 bins
 bins_eco = [0.0, 0.05, 0.51] # no eco, small eco, more than half of total
 tactical_values = {'Reg': [], 'CDR': []}
@@ -91,7 +92,7 @@ def compute_tactical_scores(state, player, dm, t='Reg'):
         tot += s[tmpr]
     if HISTOGRAMS:
         for r,v in s.iteritems():
-            tactical_values[t].append(1.0 - v/tot)
+            tactical_values[t].append(v/tot)
     return (s, tot)
 
 def compute_tactical_score(state, player, dm, r, t='Reg'):
@@ -104,7 +105,7 @@ def compute_tactical_score(state, player, dm, r, t='Reg'):
     """
     # TODO review this heuristic
     s, tot = compute_tactical_scores(state, player, dm, t)
-    return 1.0 - s[r]/tot
+    return s[r]/tot
 
 def belong_distrib(r, defender, attacker, st, dm, t='Reg'):
     """ tells how much a base belongs to the defender """
@@ -360,7 +361,7 @@ class TacticsMatchUp:
     def __repr__(self):
         s = ""
         for k,v in self.models.iteritems():
-            if v.n_battles <= 0.0:
+            if v.n_battles['Reg'] <= 0.0 or v.n_battles['CDR'] <= 0.0:
                 continue
             s += "**************** \n"
             s += "Model for race " + k + "\n"
@@ -391,7 +392,7 @@ class TacticsMatchUp:
         import matplotlib.pyplot as plt
 
         for race,m in self.models.iteritems():
-            if m.n_battles <= 0.0:
+            if m.n_battles['Reg'] <= 0.0 or m.n_battles['CDR'] <= 0.0:
                 continue
             for rt,t in m.EI_TI_B_knowing_A.iteritems():
                 if DEBUG_LEVEL > 1:
@@ -536,9 +537,11 @@ class TacticalModel:
             self.EI_TI_B_knowing_A[rt].fill(ADD_SMOOTH)
             self.AD_GD_ID_knowing_H[rt] = np.ndarray(shape=(len(bins_ad_gd),len(bins_ad_gd),len(bins_detect),size_H), dtype='float')
             self.AD_GD_ID_knowing_H[rt].fill(ADD_SMOOTH)
-        self.n_battles = 0.0
-        self.n_not_battles = 0.0
-        self.n_how = [0.0 for i in range(size_H)] # w/o drop: ground/air/invisible
+        self.n_battles = {'Reg': 0.0, 'CDR': 0.0}
+        self.n_not_battles = {'Reg': 0.0, 'CDR': 0.0}
+        self.A = {'Reg': 1.0, 'CDR': 1.0}
+        self.n_how = {'Reg': [0.0 for i in range(size_H)], 'CDR': [0.0 for i in range(size_H)]}
+                # w/o drop: ground/air/invisible
 
     def __repr__(self):
         s = ""
@@ -574,7 +577,7 @@ class TacticalModel:
                 for kbel,vbel in b[1][rt]['belong'][rnumber].iteritems():
                     tmp = veco*vtac*vbel
                     self.EI_TI_B_knowing_A[rt][keco, ktac, kbel, 1] += tmp 
-                    self.n_battles += tmp
+                    self.n_battles[rt] += tmp
         for r in b[1][rt]['eco']:
             if r != rnumber:
                 for keco,veco in b[1][rt]['eco'][r].iteritems():
@@ -582,7 +585,7 @@ class TacticalModel:
                         for kbel,vbel in b[1][rt]['belong'][r].iteritems():
                             tmp = veco*vtac*vbel
                             self.EI_TI_B_knowing_A[rt][keco, ktac, kbel, 0] += tmp 
-                            self.n_not_battles += tmp
+                            self.n_not_battles[rt] += tmp
 
         for attack_type in b[0]:
             for kair,vair in b[1][rt]['air'][rnumber].iteritems():
@@ -591,15 +594,21 @@ class TacticalModel:
                         tmp = vair*vground*vdetect
                         ind = TacticalModel.attack_type_to_ind(attack_type)
                         self.AD_GD_ID_knowing_H[rt][kair, kground, kdetect,ind] += tmp
-                        self.n_how[ind] += tmp
+                        self.n_how[rt][ind] += tmp
  
     def normalize(self):
+        if self.n_battles['Reg'] <= 0.0 or self.n_battles['CDR'] <= 0.0:
+            return
         for rt in self.AD_GD_ID_knowing_H:
-            for ind in range(len(self.n_how)):
-                self.AD_GD_ID_knowing_H[rt][:,:,:,ind] /= self.n_how[ind]/2 + len(self.AD_GD_ID_knowing_H[rt])*len(self.AD_GD_ID_knowing_H[rt][0])*len(self.AD_GD_ID_knowing_H[rt][0][0])*ADD_SMOOTH
-            self.EI_TI_B_knowing_A[rt][:,:,:,1] /= sum(sum(sum(self.EI_TI_B_knowing_A[rt][:,:,:,1])))
-            self.EI_TI_B_knowing_A[rt][:,:,:,0] /= sum(sum(sum(self.EI_TI_B_knowing_A[rt][:,:,:,0])))
-        print "I've seen", int(self.n_battles/2), "battles" # n_battles counted
+            self.A[rt] = self.n_battles[rt]/(self.n_battles[rt] + self.n_not_battles[rt])
+            for ind in range(len(self.n_how[rt])):
+                self.AD_GD_ID_knowing_H[rt][:,:,:,ind] /= self.n_how[rt][ind] + len(self.AD_GD_ID_knowing_H[rt])*len(self.AD_GD_ID_knowing_H[rt][0])*len(self.AD_GD_ID_knowing_H[rt][0][0])*ADD_SMOOTH
+            #self.EI_TI_B_knowing_A[rt][:,:,:,1] /= sum(sum(sum(self.EI_TI_B_knowing_A[rt][:,:,:,1])))
+            self.EI_TI_B_knowing_A[rt][:,:,:,1] /= len(self.EI_TI_B_knowing_A[rt])*len(self.EI_TI_B_knowing_A[rt][0])*len(self.EI_TI_B_knowing_A[rt][0][0])*ADD_SMOOTH + self.n_battles[rt]
+            #self.EI_TI_B_knowing_A[rt][:,:,:,0] /= sum(sum(sum(self.EI_TI_B_knowing_A[rt][:,:,:,0])))
+            self.EI_TI_B_knowing_A[rt][:,:,:,0] /= len(self.EI_TI_B_knowing_A[rt])*len(self.EI_TI_B_knowing_A[rt][0])*len(self.EI_TI_B_knowing_A[rt][0][0])*ADD_SMOOTH + self.n_not_battles[rt]
+        print "I've seen", int(self.n_battles['Reg']), "Reg battles" # n_battles counted
+        print "I've seen", int(self.n_battles['CDR']), "CDR battles" # n_battles counted
         # twice (both for CDR and Reg), n_how too
 
     def test(self, tests, results):
@@ -683,8 +692,8 @@ class TacticalModel:
                 total += number_at[attack_type]
                 gh = good_how[rt].get(attack_type, 0)
                 good += gh
-                print "Good how", attack_type, "predictions:", gh*1.0/number_at[attack_type]/2, ":", gh, "/", number_at[attack_type]/2
-            print "Good how predictions:", good*1.0/total, good, "/", total/2
+                print "Good how", attack_type, "predictions:", gh*1.0/(number_at[attack_type]/2), ":", gh, "/", number_at[attack_type]/2
+            print "Good how predictions:", good*1.0/(total/2), good, "/", total/2
 
 
 if __name__ == "__main__":
@@ -789,13 +798,52 @@ if __name__ == "__main__":
         tactical_values['Reg'].sort()
         t = tactical_values['Reg']
         bins = [0.0, t[int(len(t)*0.2)], t[int(len(t)*0.4)], t[int(len(t)*0.6)], t[int(len(t)*0.8)], 1.0]
+        bins = bins_tactical
+        print bins
         plt.hist(tactical_values['Reg'], bins)
         plt.savefig("myhistTacticalReg.png")
         plt.figure()
         tactical_values['CDR'].sort()
         t = tactical_values['CDR']
         bins = [0.0, t[int(len(t)*0.2)], t[int(len(t)*0.4)], t[int(len(t)*0.6)], t[int(len(t)*0.8)], 1.0]
+        bins = bins_tactical
+        print bins
         plt.hist(tactical_values['CDR'], bins)
         plt.savefig("myhistTacticalCDR.png")
+    t = tactics.models['T'].EI_TI_B_knowing_A['Reg']
+    a = tactics.models['T'].A['Reg']
+    print tactics.models['T'].n_battles
+    print tactics.models['T'].n_not_battles
+    print a
+    num1 = np.array([sum(sum(t[:,i,:,1]))*a for i in range(len(bins_tactical))])
+    num2 = np.array([sum(sum(t[:,i,:,0]))*(1.0-a) for i in range(len(bins_tactical))])
+
+    print num1
+    print num2
+    print num1/(num1+num2)
+    print num2/(num1+num2)
+    num1 = np.array([sum(t[0,i,:,1])*a for i in range(len(bins_tactical))])
+    num2 = np.array([sum(t[0,i,:,0])*(1.0-a) for i in range(len(bins_tactical))])
+    print num1/(num1+num2)
+
+    num1 = np.array([sum(t[1,i,:,1])*a for i in range(len(bins_tactical))])
+    num2 = np.array([sum(t[1,i,:,0])*(1.0-a) for i in range(len(bins_tactical))])
+    print num1/(num1+num2)
+
+    num1 = np.array([sum(t[2,i,:,1])*a for i in range(len(bins_tactical))])
+    num2 = np.array([sum(t[2,i,:,0])*(1.0-a) for i in range(len(bins_tactical))])
+    print num1/(num1+num2)
 
 
+
+    num1 = np.array([t[0,i,1,1]*a for i in range(len(bins_tactical))])
+    num2 = np.array([t[0,i,1,0]*(1.0-a) for i in range(len(bins_tactical))])
+    print num1/(num1+num2)
+
+    num1 = np.array([t[1,i,1,1]*a for i in range(len(bins_tactical))])
+    num2 = np.array([t[1,i,1,0]*(1.0-a) for i in range(len(bins_tactical))])
+    print num1/(num1+num2)
+
+    num1 = np.array([t[2,i,1,1]*a for i in range(len(bins_tactical))])
+    num2 = np.array([t[2,i,1,0]*(1.0-a) for i in range(len(bins_tactical))])
+    print num1/(num1+num2)
