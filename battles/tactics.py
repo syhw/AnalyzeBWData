@@ -246,20 +246,20 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
                     s[k] = eco_distrib(s[k]/tot)
                 tmp[rt]['eco'] = s
                 s, tot = compute_tactical_scores(st, defender, dm, t=rt)
-                #if HISTOGRAMS:
-                #    if rt == 'Reg':
-                #        tactical_values[rt].append(s[reg]/tot)
-                #    else:
-                #        tactical_values[rt].append(s[cdr]/tot)
-                for k in s:
-                    s[k] = tactic_distrib(s[k]/tot)
-                tmp[rt]['tactic'] = s
-                s, tot = compute_tactical_scores(st, attacker, dm, t=rt)
                 if HISTOGRAMS:
                     if rt == 'Reg':
                         tactical_values[rt].append(s[reg]/tot)
                     else:
                         tactical_values[rt].append(s[cdr]/tot)
+                for k in s:
+                    s[k] = tactic_distrib(s[k]/tot)
+                tmp[rt]['tactic'] = s
+                s, tot = compute_tactical_scores(st, attacker, dm, t=rt)
+                #if HISTOGRAMS:
+                #    if rt == 'Reg':
+                #        tactical_values[rt].append(s[reg]/tot)
+                #    else:
+                #        tactical_values[rt].append(s[cdr]/tot)
                 for k in s:
                     s[k] = tactic_distrib(s[k]/tot)
                 tmp[rt]['atactic'] = s
@@ -407,47 +407,72 @@ class TacticsMatchUp:
             self.models[k].test(td[k], rd[k])
 
     def plot_tables(self):
+        #P(A=1|EI=1,B=1) axes for values of TI
+        #def ask_A(self, rt='Reg', EI=-1, TI=-1, B=-1, ATI=-1, A=1):
+        t = tactics.models['T'].EI_TI_B_ATI_knowing_A['Reg']
+        print [tactics.models['T'].ask_A('Reg', EI=1, TI=i, B=1, ATI=-1, A=1) for i in range(len(bins_tactical))]
+        a = tactics.models['T'].A['Reg']
+        num1 = np.array([sum(t[1,i,1,:,1])*a for i in range(len(bins_tactical))])
+        num2 = np.array([sum(t[1,i,1,:,0])*(1.0-a) for i in range(len(bins_tactical))])
+        print "P(A=1|EI=1,B=1) axes for values of TI"
+        print num1/(num1+num2)
+
         import matplotlib.pyplot as plt
 
         for race,m in self.models.iteritems():
             if m.n_battles['Reg'] <= 0.0 or m.n_battles['CDR'] <= 0.0:
                 continue
-            for rt,t in m.EI_TI_B_ATI_knowing_A.iteritems():
-                if DEBUG_LEVEL > 1:
-                    print "Total sum P(EI,TI,B,ATI|A)", [sum(sum(sum(sum(t[:,:,:,i])))) for i in range(2)]
+            width = 0.5
+            for rt in m.EI_TI_B_ATI_knowing_A:
                 fig = plt.figure()
                 fig.subplots_adjust(wspace=0.3, hspace=0.6)
 
                 ax = fig.add_subplot(221)
                 ind = np.arange(len(bins_eco))
-                width = 0.5
-                ax.set_xticks(ind+width)
+                ax.set_ylabel("P(A=1|EI)")
+                ax.set_xticks(ind+width/2)
                 ax.set_xticklabels(["no eco", "low eco", "high eco"])
-                s = [sum(sum(sum(t[i,:,:,:,1]))) for i in ind]
+                ax.set_xlabel("for defender")
+                s = [m.ask_A(rt, EI=i) for i in ind]
                 #print s
                 ax.bar(ind, s, width, color='r')
 
                 ax = fig.add_subplot(222)
                 ind = np.arange(len(bins_tactical))
-                ax.set_xticks(ind+width)
-                ax.set_xlabel("tactical value")
-                ax.set_xticklabels(["0", "1", "2", "3", "4"])
-                s = [sum(sum(sum(t[:,i,:,:,1]))) for i in ind]
+                ax.set_ylabel("P(A=1|TI)")
+                ax.set_xticks(ind+width/2)
+                ax.set_xlabel("tactical value (discretized)")
+                ax.set_xticklabels([str(bins_tactical[i])+"-"+str(bins_tactical[i+1]) for i in range(len(bins_tactical)-1)])
+                ax.set_xlabel("for defender")
+                s = [m.ask_A(rt, TI=i) for i in ind]
                 #print s
                 ax.bar(ind, s, width, color='r')
 
                 ax = fig.add_subplot(223)
                 ind = np.arange(2)
-                ax.set_xticks(ind+width)
+                ax.set_ylabel("P(A=1|B)")
+                ax.set_xticks(ind+width/2)
                 ax.set_xticklabels(["doesn't belong", "belong"])
-                s = [sum(sum(sum(t[:,:,i,:,1]))) for i in ind]
+                ax.set_xlabel("for defender")
+                s = [m.ask_A(rt, B=i) for i in ind]
+                #print s
+                ax.bar(ind, s, width, color='r')
+
+                ax = fig.add_subplot(224)
+                ind = np.arange(len(bins_tactical))
+                ax.set_ylabel("P(A=1|ATI)")
+                ax.set_xticks(ind+width/2)
+                ax.set_xlabel("tactical value (discretized)")
+                ax.set_xticklabels([str(bins_tactical[i])+"-"+str(bins_tactical[i+1]) for i in range(len(bins_tactical)-1)])
+                ax.set_xlabel("for attacker")
+                s = [m.ask_A(rt, ATI=i) for i in ind]
                 #print s
                 ax.bar(ind, s, width, color='r')
                 
                 #plt.show()
                 plt.savefig("where"+rt+race+".png")
 
-            for rt,t in m.AD_GD_ID_knowing_H.iteritems():
+            for rt in m.AD_GD_ID_knowing_H:
                 if DEBUG_LEVEL > 1:
                     print "Total sum P(AD,GD,ID|H)", [sum(sum(sum(t[:,:,:,i]))) for i in range(len(t[0,0,0]))]
                 fig = plt.figure()
@@ -455,57 +480,59 @@ class TacticsMatchUp:
 
                 ax = fig.add_subplot(321)
                 ind = np.arange(len(bins_ad_gd))
-                ax.set_xticks(ind+width)
+                ax.set_xticks(ind+width/2)
                 ax.set_xlabel("air defense level")
-                ax.set_ylabel("P(Air)")
-                #ax.set_xticklabels(["", "", ""])
-                s = [sum(sum(t[i,:,:,1])) for i in ind]
+                ax.set_ylabel("P(H=Air|AD)")
+                s = [m.ask_H(rt, AD=i, H=1) for i in ind]
                 #print s
                 ax.bar(ind, s, width, color='r')
 
                 ax = fig.add_subplot(322)
                 ind = np.arange(len(bins_ad_gd))
-                ax.set_xticks(ind+width)
+                ax.set_xticks(ind+width/2)
                 ax.set_xlabel("ground defense level")
-                ax.set_ylabel("P(Ground)")
-                s = [sum(sum(t[:,i,:,0])) for i in ind]
+                ax.set_ylabel("P(H=Ground|GD)")
+                s = [m.ask_H(rt, GD=i, H=0) for i in ind]
+                #print("P(H=Ground|GD)")
                 #print s
                 ax.bar(ind, s, width, color='r')
 
                 ax = fig.add_subplot(323)
                 ind = np.arange(len(bins_ad_gd))
-                ax.set_xticks(ind+width)
+                ax.set_xticks(ind+width/2)
                 ax.set_xlabel("ground defense level")
-                ax.set_ylabel("P(Invis)")
-                s = [sum(sum(t[:,i,:,2])) for i in ind]
+                ax.set_ylabel("P(H=Invis|GD)")
+                s = np.array([m.ask_H(rt, GD=i, H=2) for i in ind])+1.0e-12
+                #print("P(H=Invis|GD)")
                 #print s
                 ax.bar(ind, s, width, color='r')
 
                 ax = fig.add_subplot(324)
                 ind = np.arange(len(bins_detect))
-                ax.set_xticks(ind+width)
+                ax.set_xticks(ind+width/2)
                 ax.set_xlabel("invis defense level")
-                ax.set_ylabel("P(Invis)")
-                s = [sum(sum(t[:,:,i,2])) for i in ind]
+                ax.set_ylabel("P(H=Invis|ID)")
+                s = np.array([m.ask_H(rt, ID=i, H=2) for i in ind])+1.0e-12
+                #print("P(H=Invis|ID)")
                 #print s
                 ax.bar(ind, s, width, color='r')
 
                 if WITH_DROP:
                     ax = fig.add_subplot(325)
                     ind = np.arange(len(bins_ad_gd))
-                    ax.set_xticks(ind+width)
+                    ax.set_xticks(ind+width/2)
                     ax.set_xlabel("air defense level")
-                    ax.set_ylabel("P(Drop)")
-                    s = [sum(sum(t[i,:,:,3])) for i in ind]
+                    ax.set_ylabel("P(H=Drop|AD)")
+                    s = [m.ask_H(rt, AD=i, H=3) for i in ind]
                     #print s
                     ax.bar(ind, s, width, color='r')
 
                     ax = fig.add_subplot(326)
                     ind = np.arange(len(bins_ad_gd))
-                    ax.set_xticks(ind+width)
+                    ax.set_xticks(ind+width/2)
                     ax.set_xlabel("ground defense level")
-                    ax.set_ylabel("P(Drop)")
-                    s = [sum(sum(t[:,i,:,3])) for i in ind]
+                    ax.set_ylabel("P(H=Drop|GD)")
+                    s = [m.ask_H(rt, GD=i, H=3) for i in ind]
                     #print s
                     ax.bar(ind, s, width, color='r')
 
@@ -876,28 +903,18 @@ if __name__ == "__main__":
         plt.figure()
         tactical_values['Reg'].sort()
         t = tactical_values['Reg']
-        bins = [0.0, t[int(len(t)*0.2)], t[int(len(t)*0.4)], t[int(len(t)*0.6)], t[int(len(t)*0.8)], 1.0]
-        bins = bins_tactical
+        #bins = [0.0, t[int(len(t)*0.2)], t[int(len(t)*0.4)], t[int(len(t)*0.6)], t[int(len(t)*0.8)], 1.0]
+        bins = bins_tactical + [1.0]
         print bins
         plt.hist(tactical_values['Reg'], bins)
         plt.savefig("myhistTacticalReg.png")
         plt.figure()
         tactical_values['CDR'].sort()
         t = tactical_values['CDR']
-        bins = [0.0, t[int(len(t)*0.2)], t[int(len(t)*0.4)], t[int(len(t)*0.6)], t[int(len(t)*0.8)], 1.0]
-        bins = bins_tactical
+        #bins = [0.0, t[int(len(t)*0.2)], t[int(len(t)*0.4)], t[int(len(t)*0.6)], t[int(len(t)*0.8)], 1.0]
+        bins = bins_tactical + [1.0]
         print bins
         plt.hist(tactical_values['CDR'], bins)
         plt.savefig("myhistTacticalCDR.png")
-
-    #P(A=1|EI=1,B=1) axes for values of TI
-    #def ask_A(self, rt='Reg', EI=-1, TI=-1, B=-1, ATI=-1, A=1):
-    t = tactics.models['T'].EI_TI_B_ATI_knowing_A['Reg']
-    print [tactics.models['T'].ask_A('Reg', EI=1, TI=i, B=1, ATI=-1, A=1) for i in range(len(bins_tactical))]
-    a = tactics.models['T'].A['Reg']
-    num1 = np.array([sum(t[1,i,1,:,1])*a for i in range(len(bins_tactical))])
-    num2 = np.array([sum(t[1,i,1,:,0])*(1.0-a) for i in range(len(bins_tactical))])
-    print "P(A=1|EI=1,B=1) axes for values of TI"
-    print num1/(num1+num2)
 
     
