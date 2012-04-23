@@ -26,8 +26,8 @@ NUMBER_OF_TEST_GAMES = 10 # number of games to evaluates the tactical model
 # TODO new evaluation metrics
 
 SECONDS_BEFORE = 0 # number of seconds before the attack to update state
-ADD_SMOOTH = 1.0 # Laplace smoothing, could be less than 1.0
-TACT_PARAM = -1.5 # power of the distance of units to/from regions
+ADD_SMOOTH = 0.0 # Laplace smoothing, could be less than 1.0
+TACT_PARAM = -1.6 # power of the distance of units to/from regions
 # 1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
 WITH_DROP = True # with or without Drop as an attack type
@@ -41,9 +41,7 @@ bins_ad_gd = [0.0, 0.1, 0.5] # tells the bins lower limits (quantiles) values
 if SOFT_EVIDENCE_AD_GD:
     bins_ad_gd = [0.0, 1.0]
 bins_detect = [0.0, 0.99, 1.99] # none, one, many detectors
-#bins_tactical = [0.0, 0.9651523609362167, 0.9760342259222318, 0.9824477540926082, 0.9879026329442978] # equitable repartition of numbers in 5 bins
-bins_tactical = [0.0, 0.2, 0.4, 0.6, 0.8]
-#bins_tactical = [0.0, 0.66, 0.88, 0.96, 0.985] # equitable repartition of numbers in 5 bins
+bins_tactical = [0.0, 0.1, 0.2, 0.4]
 bins_eco = [0.0, 0.05, 0.51] # no eco, small eco, more than half of total
 tactical_values = {'Reg': [], 'CDR': []}
 
@@ -85,14 +83,14 @@ def compute_tactical_scores(state, player, dm, t='Reg'):
             if unit[t] == -1:
                 continue
             d = dm.dist(unit[t], tmpr, t)
-            if d > 0.0:
+            if d >= 0.0:
                 s[tmpr] += unit_types.score_unit(unit.name)*((1.0+d)**TACT_PARAM)
             else:
                 s[tmpr] += unit_types.score_unit(unit.name)*(dm.max_dist**TACT_PARAM)
         tot += s[tmpr]
-    if HISTOGRAMS:
-        for r,v in s.iteritems():
-            tactical_values[t].append(v/tot)
+    #if HISTOGRAMS:
+    #    for r,v in s.iteritems():
+    #        tactical_values[t].append(v/tot)
     return (s, tot)
 
 def compute_tactical_score(state, player, dm, r, t='Reg'):
@@ -140,7 +138,9 @@ def where_bins(s, bins):
 
 def tactic_distrib(score):
     # TODO revise distrib into true distrib?
-    d = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0}
+    d = {}
+    for i in range(len(bins_tactical)): 
+        d[i] = 0.0
     d[where_bins(score, bins_tactical)] = 1.0
     return d
 
@@ -246,10 +246,20 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
                     s[k] = eco_distrib(s[k]/tot)
                 tmp[rt]['eco'] = s
                 s, tot = compute_tactical_scores(st, defender, dm, t=rt)
+                #if HISTOGRAMS:
+                #    if rt == 'Reg':
+                #        tactical_values[rt].append(s[reg]/tot)
+                #    else:
+                #        tactical_values[rt].append(s[cdr]/tot)
                 for k in s:
                     s[k] = tactic_distrib(s[k]/tot)
                 tmp[rt]['tactic'] = s
                 s, tot = compute_tactical_scores(st, attacker, dm, t=rt)
+                if HISTOGRAMS:
+                    if rt == 'Reg':
+                        tactical_values[rt].append(s[reg]/tot)
+                    else:
+                        tactical_values[rt].append(s[cdr]/tot)
                 for k in s:
                     s[k] = tactic_distrib(s[k]/tot)
                 tmp[rt]['atactic'] = s
@@ -880,3 +890,14 @@ if __name__ == "__main__":
         plt.hist(tactical_values['CDR'], bins)
         plt.savefig("myhistTacticalCDR.png")
 
+    #P(A=1|EI=1,B=1) axes for values of TI
+    #def ask_A(self, rt='Reg', EI=-1, TI=-1, B=-1, ATI=-1, A=1):
+    t = tactics.models['T'].EI_TI_B_ATI_knowing_A['Reg']
+    print [tactics.models['T'].ask_A('Reg', EI=1, TI=i, B=1, ATI=-1, A=1) for i in range(len(bins_tactical))]
+    a = tactics.models['T'].A['Reg']
+    num1 = np.array([sum(t[1,i,1,:,1])*a for i in range(len(bins_tactical))])
+    num2 = np.array([sum(t[1,i,1,:,0])*(1.0-a) for i in range(len(bins_tactical))])
+    print "P(A=1|EI=1,B=1) axes for values of TI"
+    print num1/(num1+num2)
+
+    
