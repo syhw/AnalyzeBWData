@@ -442,7 +442,8 @@ class TacticsMatchUp:
                 ax.set_ylabel("P(A=1|TI)")
                 ax.set_xticks(ind+width/2)
                 ax.set_xlabel("tactical value (discretized)")
-                ax.set_xticklabels([str(bins_tactical[i])+"-"+str(bins_tactical[i+1]) for i in range(len(bins_tactical)-1)])
+                b = bins_tactical + [1.0]
+                ax.set_xticklabels([str(b[i])+"-"+str(b[i+1]) for i in range(len(b)-1)])
                 ax.set_xlabel("for defender")
                 s = [m.ask_A(rt, TI=i) for i in ind]
                 #print s
@@ -463,7 +464,8 @@ class TacticsMatchUp:
                 ax.set_ylabel("P(A=1|ATI)")
                 ax.set_xticks(ind+width/2)
                 ax.set_xlabel("tactical value (discretized)")
-                ax.set_xticklabels([str(bins_tactical[i])+"-"+str(bins_tactical[i+1]) for i in range(len(bins_tactical)-1)])
+                b = bins_tactical + [1.0]
+                ax.set_xticklabels([str(b[i])+"-"+str(b[i+1]) for i in range(len(b)-1)])
                 ax.set_xlabel("for attacker")
                 s = [m.ask_A(rt, ATI=i) for i in ind]
                 #print s
