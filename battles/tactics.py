@@ -26,8 +26,8 @@ NUMBER_OF_TEST_GAMES = 10 # number of games to evaluates the tactical model
 # TODO new evaluation metrics
 
 SECONDS_BEFORE = 0 # number of seconds before the attack to update state
-ADD_SMOOTH = 0.0 # Laplace smoothing, could be less than 1.0
-TACT_PARAM = -2.0 # power of the distance of units to/from regions
+ADD_SMOOTH = 1.0 # Laplace smoothing, could be less than 1.0
+TACT_PARAM = -1.5 # power of the distance of units to/from regions
 # 1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
 WITH_DROP = True # with or without Drop as an attack type
@@ -86,7 +86,7 @@ def compute_tactical_scores(state, player, dm, t='Reg'):
                 continue
             d = dm.dist(unit[t], tmpr, t)
             if d > 0.0:
-                s[tmpr] += unit_types.score_unit(unit.name)*(d**TACT_PARAM)
+                s[tmpr] += unit_types.score_unit(unit.name)*((1.0+d)**TACT_PARAM)
             else:
                 s[tmpr] += unit_types.score_unit(unit.name)*(dm.max_dist**TACT_PARAM)
         tot += s[tmpr]
@@ -815,35 +815,34 @@ if __name__ == "__main__":
     print tactics.models['T'].n_battles
     print tactics.models['T'].n_not_battles
     print a
-    num1 = np.array([sum(sum(t[:,i,:,1]))*a for i in range(len(bins_tactical))])
-    num2 = np.array([sum(sum(t[:,i,:,0]))*(1.0-a) for i in range(len(bins_tactical))])
 
-    print num1
-    print num2
-    print num1/(num1+num2)
-    print num2/(num1+num2)
     num1 = np.array([sum(t[0,i,:,1])*a for i in range(len(bins_tactical))])
     num2 = np.array([sum(t[0,i,:,0])*(1.0-a) for i in range(len(bins_tactical))])
+    print "\sum_{B} P(A=1|EI=0) axes for values of TI"
     print num1/(num1+num2)
 
     num1 = np.array([sum(t[1,i,:,1])*a for i in range(len(bins_tactical))])
     num2 = np.array([sum(t[1,i,:,0])*(1.0-a) for i in range(len(bins_tactical))])
+    print "\sum_{B} P(A=1|EI=1) axes for values of TI"
     print num1/(num1+num2)
 
+    print "\sum_{B} P(A=1|EI=2) axes for values of TI"
     num1 = np.array([sum(t[2,i,:,1])*a for i in range(len(bins_tactical))])
     num2 = np.array([sum(t[2,i,:,0])*(1.0-a) for i in range(len(bins_tactical))])
     print num1/(num1+num2)
 
 
-
     num1 = np.array([t[0,i,1,1]*a for i in range(len(bins_tactical))])
     num2 = np.array([t[0,i,1,0]*(1.0-a) for i in range(len(bins_tactical))])
+    print "P(A=1|EI=1,B=1) axes for values of TI"
     print num1/(num1+num2)
 
     num1 = np.array([t[1,i,1,1]*a for i in range(len(bins_tactical))])
     num2 = np.array([t[1,i,1,0]*(1.0-a) for i in range(len(bins_tactical))])
+    print "P(A=1|EI=1,B=1) axes for values of TI"
     print num1/(num1+num2)
 
     num1 = np.array([t[2,i,1,1]*a for i in range(len(bins_tactical))])
     num2 = np.array([t[2,i,1,0]*(1.0-a) for i in range(len(bins_tactical))])
+    print "P(A=1|EI=1,B=1) axes for values of TI"
     print num1/(num1+num2)
