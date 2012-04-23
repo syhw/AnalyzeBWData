@@ -611,6 +611,36 @@ class TacticalModel:
         print "I've seen", int(self.n_battles['CDR']), "CDR battles" # n_battles counted
         # twice (both for CDR and Reg), n_how too
 
+    def ask_A(self, rt='Reg', EI=-1, TI=-1, B=-1, A=1):
+        """ 
+        returns the P(A|EI,TI,B) with given values, for all -1 values,
+        it just sums on it (for instance, B=-1 means:
+        P(A|EI,TI) = \sum_B[P(EI,TI,B|A).P(A)] / \sum_{A,B}[P(EI,TI,B|A).P(A)]
+        """
+        t = self.EI_TI_B_knowing_A[rt]
+        P_A = self.A[rt]
+        a1 = t[:,:,:,A]*P_A
+        a0 = t[:,:,:,1-A]*(1-P_A)
+        if EI == -1:
+            a1 = sum(a1)
+            a0 = sum(a0)
+        else:
+            a1 = a1[EI]
+            a0 = a0[EI]
+        if TI == -1:
+            a1 = sum(a1)
+            a0 = sum(a0)
+        else:
+            a1 = a1[TI]
+            a0 = a0[TI]
+        if B == -1:
+            a1 = sum(a1)
+            a0 = sum(a0)
+        else:
+            a1 = a1[B]
+            a0 = a0[B]
+        return a1/(a1+a0)
+
     def test(self, tests, results):
         if len(results) == 0:
             return 
@@ -810,39 +840,3 @@ if __name__ == "__main__":
         print bins
         plt.hist(tactical_values['CDR'], bins)
         plt.savefig("myhistTacticalCDR.png")
-    t = tactics.models['T'].EI_TI_B_knowing_A['Reg']
-    a = tactics.models['T'].A['Reg']
-    print tactics.models['T'].n_battles
-    print tactics.models['T'].n_not_battles
-    print a
-
-    num1 = np.array([sum(t[0,i,:,1])*a for i in range(len(bins_tactical))])
-    num2 = np.array([sum(t[0,i,:,0])*(1.0-a) for i in range(len(bins_tactical))])
-    print "\sum_{B} P(A=1|EI=0) axes for values of TI"
-    print num1/(num1+num2)
-
-    num1 = np.array([sum(t[1,i,:,1])*a for i in range(len(bins_tactical))])
-    num2 = np.array([sum(t[1,i,:,0])*(1.0-a) for i in range(len(bins_tactical))])
-    print "\sum_{B} P(A=1|EI=1) axes for values of TI"
-    print num1/(num1+num2)
-
-    print "\sum_{B} P(A=1|EI=2) axes for values of TI"
-    num1 = np.array([sum(t[2,i,:,1])*a for i in range(len(bins_tactical))])
-    num2 = np.array([sum(t[2,i,:,0])*(1.0-a) for i in range(len(bins_tactical))])
-    print num1/(num1+num2)
-
-
-    num1 = np.array([t[0,i,1,1]*a for i in range(len(bins_tactical))])
-    num2 = np.array([t[0,i,1,0]*(1.0-a) for i in range(len(bins_tactical))])
-    print "P(A=1|EI=1,B=1) axes for values of TI"
-    print num1/(num1+num2)
-
-    num1 = np.array([t[1,i,1,1]*a for i in range(len(bins_tactical))])
-    num2 = np.array([t[1,i,1,0]*(1.0-a) for i in range(len(bins_tactical))])
-    print "P(A=1|EI=1,B=1) axes for values of TI"
-    print num1/(num1+num2)
-
-    num1 = np.array([t[2,i,1,1]*a for i in range(len(bins_tactical))])
-    num2 = np.array([t[2,i,1,0]*(1.0-a) for i in range(len(bins_tactical))])
-    print "P(A=1|EI=1,B=1) axes for values of TI"
-    print num1/(num1+num2)
