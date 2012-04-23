@@ -19,9 +19,11 @@ NUMBER_OF_TEST_GAMES = 10 # number of games to evaluates the tactical model
 # the test set will be the training set (/!\ BAD evaluation)
 
 # TODO maxi refactor
+# TODO Fix the tactical score
+# TODO Try an eco score like the tactical score ==> sum to 1
 # TODO verify probas (sum to 1) and tables contents (bias? priors?)
 # TODO A (where happens the attack) comes from a distrib "where it is possible"
-# TODO new scores
+# TODO new evaluation metrics
 
 SECONDS_BEFORE = 0 # number of seconds before the attack to update state
 ADD_SMOOTH = 0.5 # Laplace smoothing, could be less than 1.0
