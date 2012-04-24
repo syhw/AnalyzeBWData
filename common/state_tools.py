@@ -120,6 +120,8 @@ class GameState:
                         t = 'Reg'
                     if t != '':
                         li = line.rstrip('\r\n').split(',')
+                        if len(li) < 2:
+                            break
                         if int(li[1]) in self.tracked_units:
                             self.update_loc(int(li[1]), int(li[3]), t)
                         if int(li[0]) >= frame: # TODO not always good
