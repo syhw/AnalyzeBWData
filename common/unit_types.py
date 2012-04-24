@@ -94,6 +94,14 @@ ground_set = military_set - flying_set
 
 detectors_set = set(['Terran Science Vessel', 'Terran Missile Turret', 'Protoss Observer', 'Protoss Photon Cannon', 'Zerg Overlord', 'Zerg Spore Colony'])
 
+invis_attack_set = set(['Terran Wraith', 'Terran Ghost', 'Protoss Dark Templar', 'Zerg Lurker'])
+
+fly_tech = set(['Terran Starport', 'Protoss Stargate', 'Zerg Spire'])
+
+invis_tech = [['Terran Covert Ops', 'Terran Academy'], ['Terran Control Tower'], ['Protoss Templar Archives'], ['Zerg Lair', 'Zerg Hydralisk Den']]
+
+drop_tech = ['Terran Control Tower', 'Protoss Robotics Facility', 'Zerg Lair']
+
 @memoize
 def score_unit(unit):
     return unit_min_price.get(unit, 0) + (4.0/3)*unit_gas_price.get(unit, 0) + 25*unit_double_pop.get(unit, 0)

@@ -45,6 +45,44 @@ bins_tactical = [0.0, 0.1, 0.2, 0.4]
 bins_eco = [0.0, 0.05, 0.51] # no eco, small eco, more than half of total
 tactical_values = {'Reg': [], 'CDR': []}
 WITH_DISTANCE_RANKING = True # with or without distance as an evaluation metric
+POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY = True # do not use units (don't cheat) to
+# determine possible attacks, close to what the Opening/TT predictor gives
+
+
+########  filling the functions list to test for possible attacks ########
+possible_attack_types = [lambda state, player: True] # Ground attack always possible
+def aap(state, player): # Air attack possible?
+    return state.has_one_of(unit_types.flying_set, player)
+def iap(state, player): # Invis attack possible?
+    return state.has_one_of(unit_types.invis_attack_set, player)
+def dap(state, player): # Drop attack possible?
+    return state.has_one_of(unit_types.drop, player)
+def aapb(state, player): # Air attack possible? from buildings information ONLY
+    return state.has_one_of(unit_types.fly_tech, player)
+def iapb(state, player): # Invis attack possible? from buildings info ONLY
+    for l in unit_types.invis_tech:
+        if state.has_all_of(l, player):
+            return True
+    return False
+def dapb(state, player): # Drop attack possible? from buildings info ONLY
+    return state.has_one_of(unit_types.drop_tech, player)
+if POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY:
+    possible_attack_types.append(aapb)
+    possible_attack_types.append(iapb)
+    possible_attack_types.append(dapb)
+    possible_attack_types.append(lambda s,p: aapb(s,p) and iapb(s,p))
+    possible_attack_types.append(lambda s,p: aapb(s,p) and dapb(s,p))
+    possible_attack_types.append(lambda s,p: iapb(s,p) and dapb(s,p))
+    possible_attack_types.append(lambda s,p: aapb(s,p) and iapb(s,p) and dapb(s,p))
+else:
+    possible_attack_types.append(aap)
+    possible_attack_types.append(iap)
+    possible_attack_types.append(dap)
+    possible_attack_types.append(lambda s,p: aap(s,p) and iap(s,p))
+    possible_attack_types.append(lambda s,p: aap(s,p) and dap(s,p))
+    possible_attack_types.append(lambda s,p: iap(s,p) and dap(s,p))
+    possible_attack_types.append(lambda s,p: aap(s,p) and iap(s,p) and dap(s,p))
+######## /filling the functions list to test for possible attacks ########
 
 def select(state, player, inset):
     """ In the given 'state', returns the units in 'inset' of the 'player' """
@@ -556,8 +594,8 @@ class TacticalModel:
         AD (Air defense) in {0, 1, 2} (0: no defense, 1: light defense compared
         GD (Ground defense) in {0, 1, 2}  ..to the attacker, 2: heavy defense)
         ID (Invisible defense = #detectors) in {0, 1, 2+}
-        ==> P(H,AD,GD,ID) = P(AD,GD,ID|H).P(H)
-        ?: P(H|AD,GD,ID) = P(AD,GD,ID|H).P(H)/P(AD,GD,ID)
+        ==> P(H,AD,GD,ID,P) = P(AD,GD,ID|H).P(H|P).P(P)
+        ?: P(H) = \sum{AD,GD,ID,P}P(AD,GD,ID|H,P).P(H|P).P(P)
         P(A/G/ID=0) = 1.0 iff r has no defense against this type of attack
         P(A/G/ID=1) = 1.0 iff r has less than one half the score of the assaillant
                               on a given attack type
@@ -570,7 +608,13 @@ class TacticalModel:
         # AD_GD_ID_knowing_H[rt][ad][gd][id] = P(ad,gd,id | H[=ground/air/drop/invis])
         self.EI_TI_B_ATI_knowing_A = {}
         self.AD_GD_ID_knowing_H = {}
+        self.H_knowing_P = {}
+        self.P = {}
         self.size_H = 3
+        self.n_battles = {}
+        self.n_not_battles = {}
+        self.n_how = {}
+        self.n_pat = {}
         if WITH_DROP:
             self.size_H = 4
         for rt in ['Reg', 'CDR']:
@@ -578,12 +622,15 @@ class TacticalModel:
             self.EI_TI_B_ATI_knowing_A[rt].fill(ADD_SMOOTH)
             self.AD_GD_ID_knowing_H[rt] = np.ndarray(shape=(len(bins_ad_gd),len(bins_ad_gd),len(bins_detect),self.size_H), dtype='float')
             self.AD_GD_ID_knowing_H[rt].fill(ADD_SMOOTH)
-        self.n_battles = {'Reg': 0.0, 'CDR': 0.0}
-        self.n_not_battles = {'Reg': 0.0, 'CDR': 0.0}
-        self.A = {'Reg': 0.5, 'CDR': 0.5}
-        self.n_how = {'Reg': [0.0 for i in range(self.size_H)], 'CDR': [0.0 for i in range(self.size_H)]}
-        self.H = {'Reg': np.array([1.0/self.size_H for i in range(self.size_H)]),
-                'CDR': np.array([1.0/self.size_H for i in range(self.size_H)])}
+            self.H_knowing_P[rt] = np.ndarray(shape=(self.size_H,len(possible_attack_types)), dtype='float')
+            self.H_knowing_P[rt].fill(ADD_SMOOTH)
+            self.A[rt] = 0.5
+            self.P[rt] = np.array([1.0/len(possible_attack_types) for i in range(len(possible_attack_types))])
+            self.n_battles[rt] = 0.0
+            self.n_not_battles[rt] = 0.0
+            self.n_how[rt] = np.array([0.0 for i in range(self.size_H)])
+            self.n_pat[rt] = np.array([0.0 for i in range(len(possible_attack_types))])
+
 
     def __repr__(self):
         s = ""
@@ -639,6 +686,11 @@ class TacticalModel:
                         ind = TacticalModel.attack_type_to_ind(attack_type)
                         self.AD_GD_ID_knowing_H[rt][kair, kground, kdetect,ind] += tmp
                         self.n_how[rt][ind] += tmp
+
+        for possible_at, prob in b[1][rt]['possibleat'].iteritems():
+            for h in range(self.size_H):
+                self.H_knowing_P[rt][h,possible_at] += prob
+                self.n_pat[rt][possible_at] += 1
  
     def normalize(self):
         if self.n_battles['Reg'] <= 0.0 or self.n_battles['CDR'] <= 0.0:
@@ -648,10 +700,16 @@ class TacticalModel:
             self.H[rt] = [self.n_how[rt][i]/sum(self.n_how[rt]) for i in range(self.size_H)]
             for ind in range(len(self.n_how[rt])):
                 self.AD_GD_ID_knowing_H[rt][:,:,:,ind] /= self.n_how[rt][ind] + len(self.AD_GD_ID_knowing_H[rt])*len(self.AD_GD_ID_knowing_H[rt][0])*len(self.AD_GD_ID_knowing_H[rt][0][0])*ADD_SMOOTH
+                assert(abs(sum(sum(sum(self.AD_GD_ID_knowing_H[rt][:,:,:,ind]))) - 1.0) < 0.00001)
+            for ind in range(len(possible_attack_types)):
+                self.H_knowing_P[rt][:,ind] /= self.n_pat[rt][ind] + len(self.H_knowing_P[rt])*ADD_SMOOTH
+                assert(abs(sum(self.H_knowing_P[rt][:,ind]) - 1.0) < 0.00001)
             #self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,1] /= sum(sum(sum(sum(self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,1]))))
             self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,1] /= len(self.EI_TI_B_ATI_knowing_A[rt])*len(self.EI_TI_B_ATI_knowing_A[rt][0])*len(self.EI_TI_B_ATI_knowing_A[rt][0][0])*len(self.EI_TI_B_ATI_knowing_A[rt][0][0][0])*ADD_SMOOTH + self.n_battles[rt]
             #self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,0] /= sum(sum(sum(sum(self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,0]))))
             self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,0] /= len(self.EI_TI_B_ATI_knowing_A[rt])*len(self.EI_TI_B_ATI_knowing_A[rt][0])*len(self.EI_TI_B_ATI_knowing_A[rt][0][0])*len(self.EI_TI_B_ATI_knowing_A[rt][0][0][0])*ADD_SMOOTH + self.n_not_battles[rt]
+            assert(abs(sum(sum(sum(sum(self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,1])))) - 1.0) < 0.00001)
+            assert(abs(sum(sum(sum(sum(self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,0])))) - 1.0) < 0.00001)
         print "I've seen", int(self.n_battles['Reg']), "Reg battles" # n_battles counted
         print "I've seen", int(self.n_battles['CDR']), "CDR battles" # n_battles counted
         # twice (both for CDR and Reg), n_how too
@@ -769,9 +827,9 @@ class TacticalModel:
                                 tmp_H_dist += t[rt]['air'][r][ais] \
                                         * t[rt]['ground'][r][gs] \
                                         * t[rt]['detect'][r][ds] \
-                                        * (self.AD_GD_ID_knowing_H[rt][ais,gs,ds,:]*self.H[rt])
+                                        * (self.AD_GD_ID_knowing_H[rt][ais,gs,ds,:])#*self.H[rt])
                     probabilities_how[r] = tmp_H_dist/sum(tmp_H_dist)
-                    tmp = np.array(tmp_H_dist) * probabilities_where[r]
+                    tmp = np.array(tmp_H_dist) * probabilities_where[r] ### TODO SEE
                     for h,prob in enumerate(tmp):
                         if prob > max_where_how:
                             max_where_how = prob

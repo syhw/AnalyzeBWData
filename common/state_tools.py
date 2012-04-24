@@ -132,3 +132,17 @@ class GameState:
             if '[Replay Start]' in line:
                 break
         
+    def has_one_of(self, units, player):
+        for u in self.tracked_units.itervalues():
+            if u.player == player and u.name in units:
+                return True
+        return False
+
+    def has_all_of(self, units, player):
+        has_units = set([u.name for u in self.tracked_units.itervalues() if u.player==player])
+        for u in units:
+            if u not in has_units:
+                return False
+        return True
+
+
