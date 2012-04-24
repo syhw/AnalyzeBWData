@@ -19,14 +19,14 @@ NUMBER_OF_TEST_GAMES = 10 # number of games to evaluates the tactical model
 # the test set will be the training set (/!\ BAD evaluation)
 
 # TODO maxi refactor
-# TODO Fix the tactical score
-# TODO Try an eco score like the tactical score ==> sum to 1
-# TODO verify probas (sum to 1) and tables contents (bias? priors?)
-# TODO A (where happens the attack) comes from a distrib "where it is possible"
-# TODO new evaluation metrics
+# TODO REVIEW the tactical score
+# TODO TRY an eco score like the tactical score ==> sum to 1
+# TODO VERIFY probas (sum to 1) and tables contents (bias? priors?)
+# TODO ADDITIONAL: A (where happens the attack) comes from a distrib "where it is possible", Dirichlet prior on multinomial?
 
 SECONDS_BEFORE = 0 # number of seconds before the attack to update state
 ADD_SMOOTH = 1.0 # Laplace smoothing, could be less than 1.0
+ADD_SMOOTH_H = 0.1 # Laplace smoothing, could be less than 1.0
 TACT_PARAM = -1.6 # power of the distance of units to/from regions
 # 1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
@@ -45,7 +45,7 @@ bins_tactical = [0.0, 0.1, 0.2, 0.4]
 bins_eco = [0.0, 0.05, 0.51] # no eco, small eco, more than half of total
 tactical_values = {'Reg': [], 'CDR': []}
 WITH_DISTANCE_RANKING = True # with or without distance as an evaluation metric
-POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY = True # do not use units (don't cheat) to
+POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY = False # don't use units (don't cheat) to
 # determine possible attacks, close to what the Opening/TT predictor gives
 
 ########  filling the functions list to test for possible attacks ########
@@ -275,6 +275,7 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
             tmpres = data_tools.parse_attacks(line)
             cdr = pm.get_CDR(tmpres[1][0], tmpres[1][1])
             reg = pm.get_Reg(tmpres[1][0], tmpres[1][1])
+            regions = {'Reg': reg, "CDR": cdr}
             units = data_tools.parse_dicts(line)
             units = obs.heuristics_remove_observers(units)
             if len(units[0]) < 2:
@@ -328,6 +329,15 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
                     s[k] = units_distrib(s_d[k] / (0.1 + s_a[k]))
                 tmp[rt]['air'] = s
 
+                for test_r in dm.list_regions(rt):
+                    assert(test_r in tmp[rt]['eco'])
+                    assert(test_r in tmp[rt]['tactic'])
+                    assert(test_r in tmp[rt]['atactic'])
+                    assert(test_r in tmp[rt]['belong'])
+                    assert(test_r in tmp[rt]['detect'])
+                    assert(test_r in tmp[rt]['ground'])
+                    assert(test_r in tmp[rt]['air'])
+
             dpa = distrib_possible_attack_types(st, attacker)
 
             if DEBUG_LEVEL > 1:
@@ -340,7 +350,7 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
                         else:
                             print "DEBUG", tmp[rt][k][cdr]
 
-            battles.append((tmpres[0], tmp, dpa, pr[attacker], {'Reg': reg, "CDR": cdr}))
+            battles.append((tmpres[0], tmp, dpa, pr[attacker], regions))
             #              (list of types, dict of distribs, CDR, Reg)
     return battles
 
@@ -412,6 +422,15 @@ def extract_tests(fname, dm, pm=None):
                     s[k] = units_distrib(s_d[k] / (0.1 + s_a[k]))
                 tmp[rt]['air'] = s
 
+                for test_r in dm.list_regions(rt):
+                    assert(test_r in tmp[rt]['eco'])
+                    assert(test_r in tmp[rt]['tactic'])
+                    assert(test_r in tmp[rt]['atactic'])
+                    assert(test_r in tmp[rt]['belong'])
+                    assert(test_r in tmp[rt]['detect'])
+                    assert(test_r in tmp[rt]['ground'])
+                    assert(test_r in tmp[rt]['air'])
+
             dpa = distrib_possible_attack_types(st, attacker)
 
             if WITH_DISTANCE_RANKING:
@@ -442,8 +461,7 @@ class TacticsMatchUp:
 
     def count_battles(self, battles):
         for b in battles:
-            for rt in ['Reg', 'CDR']:
-                self.models[b[-2]].count_battle(b, rt)
+            self.models[b[-2]].count_battle(b)
 
     def normalize(self):
         for k,m in self.models.iteritems():
@@ -518,8 +536,6 @@ class TacticsMatchUp:
                 plt.savefig("where"+rt+race+".png")
 
             for rt in m.AD_GD_ID_knowing_H:
-                if DEBUG_LEVEL > 1:
-                    print "Total sum P(AD,GD,ID|H)", [sum(sum(sum(t[:,:,:,i]))) for i in range(len(t[0,0,0]))]
                 fig = plt.figure()
                 fig.subplots_adjust(wspace=0.3, hspace=0.6)
 
@@ -584,6 +600,53 @@ class TacticsMatchUp:
                 #plt.show()
                 plt.savefig("how"+rt+race+".png")
 
+            fig = plt.figure()
+            fig.subplots_adjust(wspace=0.3, hspace=0.6)
+
+            ax = fig.add_subplot(221)
+            ind = np.arange(m.size_H)
+            ax.set_ylabel("P(H|P=GroundAir)")
+            ax.set_xticks(ind+width/2)
+            xtl = ["Ground", "Air", "Invis"]
+            if m.size_H == 4:
+                xtl.append("Drop")
+            ax.set_xticklabels(xtl)
+            s = [m.H_knowing_P[i,1] for i in range(m.size_H)] # GA
+            #print s
+            ax.bar(ind, s, width, color='r')
+
+            ax = fig.add_subplot(222)
+            ind = np.arange(m.size_H)
+            if race == 'T':
+                ax.set_ylabel("P(H|P=GroundAirInvis)")
+                s = [m.H_knowing_P[i,3] for i in range(m.size_H)] # GAI
+            else:
+                ax.set_ylabel("P(H|P=GroundInvis)")
+                s = [m.H_knowing_P[i,2] for i in range(m.size_H)] # GI
+            ax.set_xticks(ind+width/2)
+            ax.set_xticklabels(xtl)
+            #print s
+            ax.bar(ind, s, width, color='r')
+
+            ax = fig.add_subplot(223)
+            ind = np.arange(m.size_H)
+            ax.set_ylabel("P(H|P=GroundAirDrop)")
+            ax.set_xticks(ind+width/2)
+            ax.set_xticklabels(xtl)
+            s = [m.H_knowing_P[i,5] for i in range(m.size_H)] # GAD
+            #print s
+            ax.bar(ind, s, width, color='r')
+
+            ax = fig.add_subplot(224)
+            ind = np.arange(m.size_H)
+            ax.set_ylabel("P(H|P=GroundAirInvisDrop)")
+            ax.set_xticks(ind+width/2)
+            ax.set_xticklabels(xtl)
+            s = [m.H_knowing_P[i,7] for i in range(m.size_H)] # GAID
+            #print s
+            ax.bar(ind, s, width, color='r')
+
+            plt.savefig("possible"+race+".png")
 
 class TacticalModel:
     """
@@ -619,33 +682,31 @@ class TacticalModel:
         # AD_GD_ID_knowing_H[rt][ad][gd][id] = P(ad,gd,id | H[=ground/air/drop/invis])
         self.EI_TI_B_ATI_knowing_A = {}
         self.AD_GD_ID_knowing_H = {}
-        self.H_knowing_P = {}
         self.A = {}
         self.P = {}
         self.size_H = 3
         self.n_battles = {}
         self.n_not_battles = {}
         self.n_how = {}
-        self.n_pat = {}
+        self.n_pat = np.array([0.0 for i in range(len(possible_attack_types))])
         if WITH_DROP:
             self.size_H = 4
+        self.H_knowing_P = np.ndarray(shape=(self.size_H,len(possible_attack_types)), dtype='float')
+        self.H_knowing_P.fill(ADD_SMOOTH_H)
         for rt in ['Reg', 'CDR']:
             self.EI_TI_B_ATI_knowing_A[rt] = np.ndarray(shape=(len(bins_eco),len(bins_tactical),2,len(bins_tactical),2), dtype='float')
             self.EI_TI_B_ATI_knowing_A[rt].fill(ADD_SMOOTH)
             self.AD_GD_ID_knowing_H[rt] = np.ndarray(shape=(len(bins_ad_gd),len(bins_ad_gd),len(bins_detect),self.size_H), dtype='float')
             self.AD_GD_ID_knowing_H[rt].fill(ADD_SMOOTH)
-            self.H_knowing_P[rt] = np.ndarray(shape=(self.size_H,len(possible_attack_types)), dtype='float')
-            self.H_knowing_P[rt].fill(ADD_SMOOTH)
             self.A[rt] = 0.5
             self.P[rt] = np.array([1.0/len(possible_attack_types) for i in range(len(possible_attack_types))])
             self.n_battles[rt] = 0.0
             self.n_not_battles[rt] = 0.0
             self.n_how[rt] = np.array([0.0 for i in range(self.size_H)])
-            self.n_pat[rt] = np.array([0.0 for i in range(len(possible_attack_types))])
-
 
     def __repr__(self):
-        s = ""
+        s = "*** P(H | P) ***\n"
+        s += self.H_knowing_P.__repr__() + '\n'
         for rt in ['Reg', 'CDR']:
             s += "\nRegion type" + rt + "\n"
             s += "*** P(EI, TI, B | A) ***\n"
@@ -668,7 +729,16 @@ class TacticalModel:
             print "Not a good attack type label"
             raise TypeError
     
-    def count_battle(self, b, rt):
+    def count_battle(self, b):
+        for attack_type in b[0]:
+            ind = TacticalModel.attack_type_to_ind(attack_type)
+            for ind_possible_at, prob in b[-3].iteritems():
+                self.H_knowing_P[ind,ind_possible_at] += prob
+                self.n_pat[ind_possible_at] += prob
+        for rt in ['Reg', 'CDR']:
+            self._count_battle(b, rt)
+
+    def _count_battle(self, b, rt):
         """
         fills EI_TI_B_ATI_knowing_A[rt] and AD_GD_ID_knowing_H[rt] according to b
         """
@@ -699,10 +769,6 @@ class TacticalModel:
                         self.AD_GD_ID_knowing_H[rt][kair, kground, kdetect,ind] += tmp
                         self.n_how[rt][ind] += tmp
 
-        for ind_possible_at, prob in b[-3].iteritems():
-            for h in range(self.size_H):
-                self.H_knowing_P[rt][h,ind_possible_at] += prob
-                self.n_pat[rt][ind_possible_at] += prob
  
     def normalize(self):
         if self.n_battles['Reg'] <= 0.0 or self.n_battles['CDR'] <= 0.0:
@@ -713,15 +779,15 @@ class TacticalModel:
             for ind in range(len(self.n_how[rt])):
                 self.AD_GD_ID_knowing_H[rt][:,:,:,ind] /= self.n_how[rt][ind] + len(self.AD_GD_ID_knowing_H[rt])*len(self.AD_GD_ID_knowing_H[rt][0])*len(self.AD_GD_ID_knowing_H[rt][0][0])*ADD_SMOOTH
                 assert(abs(sum(sum(sum(self.AD_GD_ID_knowing_H[rt][:,:,:,ind]))) - 1.0) < 0.00001)
-            for ind in range(len(possible_attack_types)):
-                self.H_knowing_P[rt][:,ind] /= self.n_pat[rt][ind] + len(self.H_knowing_P[rt])*ADD_SMOOTH
-                assert(abs(sum(self.H_knowing_P[rt][:,ind]) - 1.0) < 0.00001)
             #self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,1] /= sum(sum(sum(sum(self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,1]))))
             self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,1] /= len(self.EI_TI_B_ATI_knowing_A[rt])*len(self.EI_TI_B_ATI_knowing_A[rt][0])*len(self.EI_TI_B_ATI_knowing_A[rt][0][0])*len(self.EI_TI_B_ATI_knowing_A[rt][0][0][0])*ADD_SMOOTH + self.n_battles[rt]
             #self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,0] /= sum(sum(sum(sum(self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,0]))))
             self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,0] /= len(self.EI_TI_B_ATI_knowing_A[rt])*len(self.EI_TI_B_ATI_knowing_A[rt][0])*len(self.EI_TI_B_ATI_knowing_A[rt][0][0])*len(self.EI_TI_B_ATI_knowing_A[rt][0][0][0])*ADD_SMOOTH + self.n_not_battles[rt]
             assert(abs(sum(sum(sum(sum(self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,1])))) - 1.0) < 0.00001)
             assert(abs(sum(sum(sum(sum(self.EI_TI_B_ATI_knowing_A[rt][:,:,:,:,0])))) - 1.0) < 0.00001)
+        for ind in range(len(possible_attack_types)):
+            self.H_knowing_P[:,ind] /= self.n_pat[ind] + len(self.H_knowing_P)*ADD_SMOOTH_H
+            assert(abs(sum(self.H_knowing_P[:,ind]) - 1.0) < 0.00001)
         print "I've seen", int(self.n_battles['Reg']), "Reg battles" # n_battles counted
         print "I've seen", int(self.n_battles['CDR']), "CDR battles" # n_battles counted
         # twice (both for CDR and Reg), n_how too
@@ -764,9 +830,9 @@ class TacticalModel:
         """
         t = self.AD_GD_ID_knowing_H[rt]
         if P == -1:
-            P_H = np.array([sum(self.H_knowing_P[rt][i,:]) for i in range(self.size_H)])
+            P_H = np.array([sum(self.H_knowing_P[i,:]) for i in range(self.size_H)])
         else:
-            P_H = self.H_knowing_P[rt][:,P]
+            P_H = self.H_knowing_P[:,P]
         if AD == -1:
             t = sum(t)
         else:
@@ -786,8 +852,13 @@ class TacticalModel:
             return t[H]*P_H[H] / sum([t[i]*P_H[i] for i in range(self.size_H)])
 
     def test(self, tests, results):
+        # tests: (dict_scores, 0|distance_map, dict_possible_attackers))
+        # results: (list_attack_types, dict_scores, dict_possible_attackers, 
+        # player_race_attacker, dict_regions)
+        assert(len(tests) == len(results))
         if len(results) == 0:
             return 
+        tot_tests = len(tests)
         good_where_how = {'Reg': 0, 'CDR': 0}
         good_where = {'Reg': 0, 'CDR': 0}
         number_at = {} # number of attacks for each attack type
@@ -795,14 +866,25 @@ class TacticalModel:
         rank_where = {'Reg': 0, 'CDR': 0} # rank 0 is the first one
         sum_max_rank = {'Reg': 0, 'CDR': 0} # rank 0 is the first one
         percent_of_good_prob = {'Reg': 0.0, 'CDR': 0.0}
-        distance_where = {'Reg': 0.0, 'CDR': 0.0}
-        for i,t in enumerate(tests):
-            dpa = t[2]
-            t = t[0]
+        distance_where_best = {'Reg': 0.0, 'CDR': 0.0}
+        distance_where_sum = {'Reg': 0.0, 'CDR': 0.0}
+        max_distance = {'Reg': 0.0, 'CDR': 0.0}
+        top8 = {'Reg': np.array([0.0 for i in range(8)]),
+                'CDR': np.array([0.0 for i in range(8)])}
+        top8pred = {'Reg': np.array([0.0 for i in range(8)]),
+                    'CDR': np.array([0.0 for i in range(8)])}
+        for i,tt in enumerate(tests):
+            dpa = tt[-1]
+            t = tt[0]
             for rt in t: # region types
                 # P(A) = \sum{EI,TI,B,ATI}[P(EI,TI,B,ATI|A)P(A)]
                 #             / \sum{A,EI,TI,B,ATI}[P(EI,TI,B,ATI|A)P(A)]
                 # + soft evidences
+                the_good_region = results[i][-1][rt]
+                if the_good_region not in t[rt]['air']:
+                    print >> sys.stderr, "ERROR", the_good_region, "not in t[rt][air]"
+                    tot_tests -= 1
+                    continue
                 probabilities_where = {}
                 probs_where = []
                 max_where = -1.0
@@ -827,13 +909,19 @@ class TacticalModel:
                     if probabilities_where[r] > max_where:
                         max_where = probabilities_where[r]
                         where = r
+                tmpprobwhere = [(pp,rr) for rr,pp in probabilities_where.iteritems()]
+                tmpprobwhere.sort()
+                tmpprobwhere.reverse()
+                top8[rt] += np.array([z[0] for z in tmpprobwhere[:8]])
+                for i in range(len(top8pred[rt])):
+                    if tmpprobwhere[i][1] == the_good_region:
+                        top8pred[rt][i] += 1.0
                 # P(H) = \sum{AD,GD,ID,P}[P(AD,GD,ID|H).P(H|P).P(P)]
                 #             / \sum{H,AD,GD,ID,P}[P(AD,GD,ID|H).P(H|P).P(P)]
                 # + soft-evidences
                 probabilities_how = {}
                 probabilities_where_how = {}
                 max_where_how = -1.0
-                how = 0
                 where_how = 0
                 for r in t[rt]['air']:
                     tmp_H_dist = np.array([0.0, 0.0, 0.0]) # w/o drop
@@ -847,43 +935,67 @@ class TacticalModel:
                                             * t[rt]['ground'][r][gs] \
                                             * t[rt]['detect'][r][ds] \
                                             * dpa[pa] \
-                                            * (self.AD_GD_ID_knowing_H[rt][ais,gs,ds,:]*self.H_knowing_P[rt][:,pa])
+                                            * (self.AD_GD_ID_knowing_H[rt][ais,gs,ds,:]*self.H_knowing_P[:,pa])
                     probabilities_how[r] = tmp_H_dist/sum(tmp_H_dist)
                     tmp = tmp_H_dist * probabilities_where[r]
                     for h,prob in enumerate(tmp):
                         if prob > max_where_how:
                             max_where_how = prob
-                            how = h
                             where_how = r
                     probabilities_where_how[r] = tmp
-                #print "Where (absolute):", where
-                #print "Where|how:", where_how
-                #print "How:", how
+                how_p = [(pp,ii) for ii,pp in enumerate(probabilities_how[the_good_region])]
+                how_p.sort()
+                how_p.reverse()
                 for attack_type in results[i][0]:
                     number_at[attack_type] = number_at.get(attack_type, 0) + 1
-                    if TacticalModel.attack_type_to_ind(attack_type) == how:
+                    if TacticalModel.attack_type_to_ind(attack_type) == how_p[0][1]:
                         good_how[rt][attack_type] = good_how[rt].get(attack_type, 0) + 1
-                    #if len(results[i][0]) > 1:
-                    #    probabilities_how[where] 
-                if results[i][-1][rt] == where_how:
+                    if len(results[i][0]) == 2: 
+                        if TacticalModel.attack_type_to_ind(attack_type) == how_p[1][1]:
+                            good_how[rt][attack_type] = good_how[rt].get(attack_type, 0) + 1
+                    if len(results[i][0]) == 3: 
+                        if TacticalModel.attack_type_to_ind(attack_type) == how[2][1]:
+                            good_how[rt][attack_type] = good_how[rt].get(attack_type, 0) + 1
+                if the_good_region == where_how:
                     good_where_how[rt] += 1
-                if results[i][-1][rt] == where:
+                if the_good_region == where:
                     good_where[rt] += 1
                 probs_where.sort()
-                rank_where[rt] += probs_where.index(probabilities_where[results[i][-1][rt]])
+                rank_where[rt] += probs_where.index(probabilities_where[the_good_region])
                 sum_max_rank[rt] += len(probs_where)
-                percent_of_good_prob[rt] += probabilities_where[results[i][-1][rt]]/probabilities_where[where]
+                percent_of_good_prob[rt] += probabilities_where[the_good_region]/probabilities_where[where]
                 if WITH_DISTANCE_RANKING and type(tests[i][1]) != int:
-                    distance_where[rt] += tests[i][1].dist(where, results[i][-1][rt], rt)
+                    try:
+                        distance_where_best[rt] += tests[i][1].dist(where, the_good_region, rt)
+                    except KeyError:
+                        distance_where_best[rt] += 0 #tests[i][1].max_dist # TODO remove?
+                    #for rr in tests[i][1].list_regions(rt):
+                    for rr in t[rt]['air']:
+                        try:
+                            tmpdist = tests[i][1].dist(rr, the_good_region, rt)
+                        except KeyError:
+                            tmpdist = -1
+                        if tmpdist > 0: # small bias with islands here
+                            distance_where_sum[rt] += tmpdist*probabilities_where[r]
+                    max_distance[rt] += tests[i][1].max_dist
+
 
             #print results[i] # real battle that happened
         for rt in good_where_how:
             print "Type:", rt
-            print "Good where predictions:", good_where[rt]*1.0/len(results)
-            print "Good where+how predictions:", good_where_how[rt]*1.0/len(results)
-            print "Mean rank where predictions:", rank_where[rt]*1.0/len(results), "mean max rank:", sum_max_rank[rt]*1.0/len(results)
-            print "Mean prob[where_happened] / prob[best_guest] where predictions:", percent_of_good_prob[rt]*1.0/len(results)
-            print "Mean distance where predictions:", distance_where[rt]*1.0/len(results)
+            print "Good where predictions:", good_where[rt]*1.0/tot_tests
+            print "Good where+how predictions:", good_where_how[rt]*1.0/tot_tests
+            print "Mean rank where predictions:", rank_where[rt]*1.0/tot_tests, "mean max rank:", sum_max_rank[rt]*1.0/tot_tests
+            print "Mean prob[where_happened] / prob[best_guest] where predictions:", percent_of_good_prob[rt]*1.0/tot_tests
+            if WITH_DISTANCE_RANKING:
+                print "Mean distance best where predictions:", distance_where_best[rt]*1.0/tot_tests
+                print "Mean distance sum where predictions:", distance_where_sum[rt]*1.0/tot_tests
+                print "Mean max distance for information:", max_distance[rt]/tot_tests
+            print "Mean top8 regions probabilities:"
+            print top8[rt]/tot_tests
+            print "Mean top8 number of good predictions:"
+            print top8pred[rt]/tot_tests
+            print "TODO: metrics on where x how" # TODO
             total = 0
             good = 0
             for attack_type in number_at:
@@ -892,6 +1004,7 @@ class TacticalModel:
                 gh = good_how[rt].get(attack_type, 0)
                 good += gh
                 print "Good how", attack_type, "predictions:", gh*1.0/nat, ":", gh, "/", nat
+                # print "Mean how", attack_type, TODO
             print "Good how predictions:", good*1.0/total, ":", good, "/", total
 
 
