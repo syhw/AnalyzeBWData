@@ -14,7 +14,7 @@ except:
 DEBUG_LEVEL = 1 # 0: no debug output, 1: some, 2: all
 HISTOGRAMS = True
 testing = True # learn only or test on NUMBER_OF_TEST_GAMES
-NUMBER_OF_TEST_GAMES = 20 # number of games to evaluates the tactical model
+NUMBER_OF_TEST_GAMES = 10 # number of games to evaluates the tactical model
 # if this number is greater than the total number of games,
 # the test set will be the training set (/!\ BAD evaluation)
 
@@ -48,9 +48,9 @@ WITH_DISTANCE_RANKING = True # with or without distance as an evaluation metric
 POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY = True # do not use units (don't cheat) to
 # determine possible attacks, close to what the Opening/TT predictor gives
 
-
 ########  filling the functions list to test for possible attacks ########
-possible_attack_types = [lambda state, player: True] # Ground attack always possible
+possible_attack_types = ["Ground", "GroundAir", "GroundInvis", "GroundAirInvis",
+        "GroundDrop", "GroundAirDrop", "GroundInvisDrop", "GroundAirInvisDrop"]
 def aap(state, player): # Air attack possible?
     return state.has_one_of(unit_types.flying_set, player)
 def iap(state, player): # Invis attack possible?
@@ -66,22 +66,28 @@ def iapb(state, player): # Invis attack possible? from buildings info ONLY
     return False
 def dapb(state, player): # Drop attack possible? from buildings info ONLY
     return state.has_one_of(unit_types.drop_tech, player)
+def d_p_a_t(state, attacker, air=0, invis=0, drop=0):
+    """ Given air(), invis(), drop(), returns the correct possible attack
+    types distribution (1.0 for right combination, 0.0 everywhere else)"""
+    d = {}
+    for i in range(len(possible_attack_types)): 
+        d[i] = 0.0
+    ind = 0 # binary coding of possible_attack_types
+    if air(state, attacker):
+        ind += 1
+    if invis(state, attacker):
+        ind += 2
+    if drop(state, attacker):
+        ind += 4
+    d[ind] = 1.0
+    return d
+
 if POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY:
-    possible_attack_types.append(aapb)
-    possible_attack_types.append(iapb)
-    possible_attack_types.append(dapb)
-    possible_attack_types.append(lambda s,p: aapb(s,p) and iapb(s,p))
-    possible_attack_types.append(lambda s,p: aapb(s,p) and dapb(s,p))
-    possible_attack_types.append(lambda s,p: iapb(s,p) and dapb(s,p))
-    possible_attack_types.append(lambda s,p: aapb(s,p) and iapb(s,p) and dapb(s,p))
+    distrib_possible_attack_types = functools.partial(d_p_a_t, air=aapb,
+            invis=iapb, drop=dapb)
 else:
-    possible_attack_types.append(aap)
-    possible_attack_types.append(iap)
-    possible_attack_types.append(dap)
-    possible_attack_types.append(lambda s,p: aap(s,p) and iap(s,p))
-    possible_attack_types.append(lambda s,p: aap(s,p) and dap(s,p))
-    possible_attack_types.append(lambda s,p: iap(s,p) and dap(s,p))
-    possible_attack_types.append(lambda s,p: aap(s,p) and iap(s,p) and dap(s,p))
+    distrib_possible_attack_types = functools.partial(d_p_a_t, air=aap,
+            invis=iap, drop=dap)
 ######## /filling the functions list to test for possible attacks ########
 
 def select(state, player, inset):
@@ -322,6 +328,8 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
                     s[k] = units_distrib(s_d[k] / (0.1 + s_a[k]))
                 tmp[rt]['air'] = s
 
+            dpa = distrib_possible_attack_types(st, attacker)
+
             if DEBUG_LEVEL > 1:
                 print tmpres[0]
                 for rt in ['Reg', 'CDR']:
@@ -332,7 +340,7 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
                         else:
                             print "DEBUG", tmp[rt][k][cdr]
 
-            battles.append((tmpres[0], tmp, pr[attacker], {'Reg': reg, "CDR": cdr}))
+            battles.append((tmpres[0], tmp, dpa, pr[attacker], {'Reg': reg, "CDR": cdr}))
             #              (list of types, dict of distribs, CDR, Reg)
     return battles
 
@@ -403,10 +411,13 @@ def extract_tests(fname, dm, pm=None):
                 for k in s_d:
                     s[k] = units_distrib(s_d[k] / (0.1 + s_a[k]))
                 tmp[rt]['air'] = s
+
+            dpa = distrib_possible_attack_types(st, attacker)
+
             if WITH_DISTANCE_RANKING:
-                tests.append((tmp, dm))
+                tests.append((tmp, dm, dpa))
             else:
-                tests.append((tmp, 0))
+                tests.append((tmp, 0, dpa))
     return tests
 
 class TacticsMatchUp:
@@ -609,6 +620,7 @@ class TacticalModel:
         self.EI_TI_B_ATI_knowing_A = {}
         self.AD_GD_ID_knowing_H = {}
         self.H_knowing_P = {}
+        self.A = {}
         self.P = {}
         self.size_H = 3
         self.n_battles = {}
@@ -687,17 +699,17 @@ class TacticalModel:
                         self.AD_GD_ID_knowing_H[rt][kair, kground, kdetect,ind] += tmp
                         self.n_how[rt][ind] += tmp
 
-        for possible_at, prob in b[1][rt]['possibleat'].iteritems():
+        for ind_possible_at, prob in b[-3].iteritems():
             for h in range(self.size_H):
-                self.H_knowing_P[rt][h,possible_at] += prob
-                self.n_pat[rt][possible_at] += 1
+                self.H_knowing_P[rt][h,ind_possible_at] += prob
+                self.n_pat[rt][ind_possible_at] += prob
  
     def normalize(self):
         if self.n_battles['Reg'] <= 0.0 or self.n_battles['CDR'] <= 0.0:
             return
         for rt in self.AD_GD_ID_knowing_H:
             self.A[rt] = self.n_battles[rt]/(self.n_battles[rt] + self.n_not_battles[rt])
-            self.H[rt] = [self.n_how[rt][i]/sum(self.n_how[rt]) for i in range(self.size_H)]
+            #deprecated self.H[rt] = [self.n_how[rt][i]/sum(self.n_how[rt]) for i in range(self.size_H)]
             for ind in range(len(self.n_how[rt])):
                 self.AD_GD_ID_knowing_H[rt][:,:,:,ind] /= self.n_how[rt][ind] + len(self.AD_GD_ID_knowing_H[rt])*len(self.AD_GD_ID_knowing_H[rt][0])*len(self.AD_GD_ID_knowing_H[rt][0][0])*ADD_SMOOTH
                 assert(abs(sum(sum(sum(self.AD_GD_ID_knowing_H[rt][:,:,:,ind]))) - 1.0) < 0.00001)
@@ -743,15 +755,18 @@ class TacticalModel:
         else:
             return t[A]*P_A[A] / sum([t[i]*P_A[i] for i in range(2)])
 
-    def ask_H(self, rt='Reg', AD=-1, GD=-1, ID=-1, H=-1):
+    def ask_H(self, rt='Reg', AD=-1, GD=-1, ID=-1, P=-1, H=-1):
         """ 
         returns the P(H|AD,GD,ID) with given values, for all -1 values,
         it just sums on it (c.f. ask_A above)
-        P(H|AD,GD,ID) = \sum_{AD,GD,ID}[P(AD,GD,ID|H).P(H)] 
-                / \sum_{H,AD,GD,ID}[P(AD,GD,ID|H).P(H)]
+        P(H|AD,GD,ID,P) = \sum_{AD,GD,ID,P}[P(AD,GD,ID|H).P(H|P).P(P)] 
+                / \sum_{H,AD,GD,ID,P}[P(AD,GD,ID|H).P(H|P).P(P)]
         """
         t = self.AD_GD_ID_knowing_H[rt]
-        P_H = self.H[rt]
+        if P == -1:
+            P_H = np.array([sum(self.H_knowing_P[rt][i,:]) for i in range(self.size_H)])
+        else:
+            P_H = self.H_knowing_P[rt][:,P]
         if AD == -1:
             t = sum(t)
         else:
@@ -782,10 +797,12 @@ class TacticalModel:
         percent_of_good_prob = {'Reg': 0.0, 'CDR': 0.0}
         distance_where = {'Reg': 0.0, 'CDR': 0.0}
         for i,t in enumerate(tests):
+            dpa = t[2]
             t = t[0]
             for rt in t: # region types
                 # P(A) = \sum{EI,TI,B,ATI}[P(EI,TI,B,ATI|A)P(A)]
                 #             / \sum{A,EI,TI,B,ATI}[P(EI,TI,B,ATI|A)P(A)]
+                # + soft evidences
                 probabilities_where = {}
                 probs_where = []
                 max_where = -1.0
@@ -810,26 +827,29 @@ class TacticalModel:
                     if probabilities_where[r] > max_where:
                         max_where = probabilities_where[r]
                         where = r
-                # P(H) = \sum{AD,GD,ID}[P(AD,GD,ID|H).P(H)]
-                #             / \sum{H,AD,GD,ID}[P(AD,GD,ID|H).P(H)]
+                # P(H) = \sum{AD,GD,ID,P}[P(AD,GD,ID|H).P(H|P).P(P)]
+                #             / \sum{H,AD,GD,ID,P}[P(AD,GD,ID|H).P(H|P).P(P)]
+                # + soft-evidences
                 probabilities_how = {}
                 probabilities_where_how = {}
                 max_where_how = -1.0
                 how = 0
                 where_how = 0
                 for r in t[rt]['air']:
-                    tmp_H_dist = [0.0, 0.0, 0.0] # w/o drop
+                    tmp_H_dist = np.array([0.0, 0.0, 0.0]) # w/o drop
                     if WITH_DROP:
-                        tmp_H_dist = [0.0, 0.0, 0.0, 0.0]
+                        tmp_H_dist = np.array([0.0, 0.0, 0.0, 0.0])
                     for ais in t[rt]['air'][r]:
                         for gs in t[rt]['ground'][r]:
                             for ds in t[rt]['detect'][r]:
-                                tmp_H_dist += t[rt]['air'][r][ais] \
-                                        * t[rt]['ground'][r][gs] \
-                                        * t[rt]['detect'][r][ds] \
-                                        * (self.AD_GD_ID_knowing_H[rt][ais,gs,ds,:])#*self.H[rt])
+                                for pa in dpa:
+                                    tmp_H_dist += t[rt]['air'][r][ais] \
+                                            * t[rt]['ground'][r][gs] \
+                                            * t[rt]['detect'][r][ds] \
+                                            * dpa[pa] \
+                                            * (self.AD_GD_ID_knowing_H[rt][ais,gs,ds,:]*self.H_knowing_P[rt][:,pa])
                     probabilities_how[r] = tmp_H_dist/sum(tmp_H_dist)
-                    tmp = np.array(tmp_H_dist) * probabilities_where[r] ### TODO SEE
+                    tmp = tmp_H_dist * probabilities_where[r]
                     for h,prob in enumerate(tmp):
                         if prob > max_where_how:
                             max_where_how = prob
