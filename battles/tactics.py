@@ -1005,6 +1005,8 @@ class TacticalModel:
                 good += gh
                 print "Good how", attack_type, "predictions:", gh*1.0/nat, ":", gh, "/", nat
                 # print "Mean how", attack_type, TODO
+            if total == 0:
+                total = -1 # to prevent divisions by 0
             print "Good how predictions:", good*1.0/total, ":", good, "/", total
 
 

@@ -122,7 +122,7 @@ class GameState:
                         li = line.rstrip('\r\n').split(',')
                         if len(li) < 2:
                             break
-                        if int(li[1]) in self.tracked_units:
+                        if li[1] != '' and int(li[1]) in self.tracked_units and li[3] != '':
                             self.update_loc(int(li[1]), int(li[3]), t)
                         if int(li[0]) >= frame: # TODO not always good
                             break               # RGD can go faster than RLD
