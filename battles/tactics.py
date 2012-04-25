@@ -25,7 +25,7 @@ NUMBER_OF_TEST_GAMES = 50 # number of games to evaluates the tactical model
 # TODO ADDITIONAL: A (where happens the attack) comes from a distrib "where it is possible", Dirichlet prior on multinomial?
 # TODO TRY max scores of Reg and CDR (in a new region type Combo)
 
-SECONDS_BEFORE = 0 # number of seconds before the attack to update state
+SECONDS_BEFORE = 10 # number of seconds before the attack to update state
 ADD_SMOOTH = 1.0 # Laplace smoothing, could be less than 1.0
 ADD_SMOOTH_H = 0.1 # Laplace smoothing, could be less than 1.0
 TACT_PARAM = -1.6 # power of the distance of units to/from regions
@@ -1028,6 +1028,7 @@ if __name__ == "__main__":
         testgames = []
         if NUMBER_OF_TEST_GAMES < len(fnamelist):
             i = 0
+            random.seed(0) # I _don't_ want randomness ;)
             r = random.randint(0,len(fnamelist)-1)
             while i < NUMBER_OF_TEST_GAMES and i < 500000:
                 if fnamelist[r] not in testgames:
