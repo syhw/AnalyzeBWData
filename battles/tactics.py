@@ -1,4 +1,4 @@
-import sys, os, pickle, copy, itertools, functools
+import sys, os, pickle, copy, itertools, functools, random
 from common import data_tools
 from common import unit_types
 from common import attack_tools
@@ -1024,16 +1024,17 @@ if __name__ == "__main__":
     if '-s' in sys.argv[1:]:
         learn = False
     if testing:
-        i = 0
-        learngames = []
+        learngames = [fna for fna in fnamelist]
         testgames = []
         if NUMBER_OF_TEST_GAMES < len(fnamelist):
-            for fname in fnamelist:
-                i += 1
-                if i > NUMBER_OF_TEST_GAMES:
-                    learngames.append(fname)
-                else:
-                    testgames.append(fname)
+            i = 0
+            r = random.randint(0,len(fnamelist)-1)
+            while i < NUMBER_OF_TEST_GAMES and i < 500000:
+                if fnamelist[r] not in testgames:
+                    i += 1
+                    testgames.append(fnamelist[r])
+                    learngames.remove(fnamelist[r])
+                r = random.randint(0,len(fnamelist)-1)
         else:
             print >> sys.stderr, "Number of test games > number of games"
             print >> sys.stderr, "Test and train on the same (whole set) games"
