@@ -29,7 +29,7 @@ SECONDS_BEFORE = 10 # number of seconds before the attack to update state
 ADD_SMOOTH = 1.0 # Laplace smoothing, could be less than 1.0
 ADD_SMOOTH_H = 0.1 # Laplace smoothing, could be less than 1.0
 TACT_PARAM = -1.6 # power of the distance of units to/from regions
-# 1.6 means than a region which is at distance 1 of the two halves of the army
+# -1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
 WITH_DROP = True # with or without Drop as an attack type
 INFER_DROP = True # with or without inference of drops
@@ -46,7 +46,7 @@ bins_tactical = [0.0, 0.1, 0.2, 0.4]
 bins_eco = [0.0, 0.05, 0.51] # no eco, small eco, more than half of total
 tactical_values = {'Reg': [], 'CDR': []}
 WITH_DISTANCE_RANKING = True # with or without distance as an evaluation metric
-POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY = False # don't use units (don't cheat) to
+POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY = True # don't use units (don't cheat) to
 # determine possible attacks, close to what the Opening/TT predictor gives
 
 ########  filling the functions list to test for possible attacks ########
@@ -285,6 +285,10 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
             attacker = detect_attacker(defender, units[0])
             if INFER_DROP and max([True if d in units[0][attacker] else False for d in unit_types.drop]):
                 tmpres[0].append('DropAttack')
+            if pr[attacker] == 'P' and 'InvisAttack' in tmpres and\
+                    'Protoss Dark Templar' not in units[attacker] and\
+                    'Protoss Arbiter' not in units[attacker]:
+                tmpres.remove('InvisAttack')
 
             tmp = {'Reg': {}, 'CDR': {}}
             for rt in tmp:
@@ -910,8 +914,11 @@ class TacticalModel:
                 tmpprobwhere = [(pp,rr) for rr,pp in probabilities_where.iteritems()]
                 tmpprobwhere.sort()
                 tmpprobwhere.reverse()
-                top8[rt] += np.array([z[0] for z in tmpprobwhere[:8]])
-                for ii in range(len(top8pred[rt])):
+                tmpbufarray = [z[0] for z in tmpprobwhere[:8]]
+                while len(tmpbufarray) < 8:
+                    tmpbufarray.append(0.0)
+                top8[rt] += np.array(tmpbufarray)
+                for ii in range(len(tmpprobwhere[:8])):
                     if tmpprobwhere[ii][1] == the_good_region:
                         top8pred[rt][ii] += 1.0
                 # P(H) = \sum{AD,GD,ID,P}[P(AD,GD,ID|H).P(H|P).P(P)]
