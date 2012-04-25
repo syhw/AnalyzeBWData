@@ -436,9 +436,9 @@ def extract_tests(fname, dm, pm=None):
             dpa = distrib_possible_attack_types(st, attacker)
 
             if WITH_DISTANCE_RANKING:
-                tests.append((tmp, dm, dpa))
+                tests.append((tmp, dm, fname, dpa))
             else:
-                tests.append((tmp, 0, dpa))
+                tests.append((tmp, 0, fname, dpa))
     return tests
 
 class TacticsMatchUp:
@@ -883,8 +883,10 @@ class TacticalModel:
                 #             / \sum{A,EI,TI,B,ATI}[P(EI,TI,B,ATI|A)P(A)]
                 # + soft evidences
                 the_good_region = results[i][-1][rt]
+                if the_good_region not in tt[1].list_regions(rt):
+                    print >> sys.stderr, "ERROR", the_good_region, "not in dm, type:", rt, "test:", tt[-2]
                 if the_good_region not in t[rt]['air']:
-                    print >> sys.stderr, "ERROR", the_good_region, "not in t[rt][air], type:", rt
+                    print >> sys.stderr, "ERROR", the_good_region, "not in t[rt]['air'], type:", rt, "test:", tt[-2]
                     #print t[rt]
                     tot_tests[rt] -= 1
                     continue
@@ -916,9 +918,9 @@ class TacticalModel:
                 tmpprobwhere.sort()
                 tmpprobwhere.reverse()
                 top8[rt] += np.array([z[0] for z in tmpprobwhere[:8]])
-                for i in range(len(top8pred[rt])):
-                    if tmpprobwhere[i][1] == the_good_region:
-                        top8pred[rt][i] += 1.0
+                for ii in range(len(top8pred[rt])):
+                    if tmpprobwhere[ii][1] == the_good_region:
+                        top8pred[rt][ii] += 1.0
                 # P(H) = \sum{AD,GD,ID,P}[P(AD,GD,ID|H).P(H|P).P(P)]
                 #             / \sum{H,AD,GD,ID,P}[P(AD,GD,ID|H).P(H|P).P(P)]
                 # + soft-evidences
@@ -957,7 +959,7 @@ class TacticalModel:
                         if TacticalModel.attack_type_to_ind(attack_type) == how_p[1][1]:
                             good_how[rt][attack_type] = good_how[rt].get(attack_type, 0) + 1
                     if len(results[i][0]) == 3: 
-                        if TacticalModel.attack_type_to_ind(attack_type) == how[2][1]:
+                        if TacticalModel.attack_type_to_ind(attack_type) == how_p[2][1]:
                             good_how[rt][attack_type] = good_how[rt].get(attack_type, 0) + 1
                 if the_good_region == where_how:
                     good_where_how[rt] += 1
@@ -967,20 +969,20 @@ class TacticalModel:
                 rank_where[rt] += probs_where.index(probabilities_where[the_good_region])
                 sum_max_rank[rt] += len(probs_where)
                 percent_of_good_prob[rt] += probabilities_where[the_good_region]/probabilities_where[where]
-                if WITH_DISTANCE_RANKING and type(tests[i][1]) != int:
+                if WITH_DISTANCE_RANKING and type(tt[1]) != int:
                     try:
-                        distance_where_best[rt] += tests[i][1].dist(where, the_good_region, rt)
+                        distance_where_best[rt] += tt[1].dist(where, the_good_region, rt)
                     except KeyError:
-                        distance_where_best[rt] += 0 #tests[i][1].max_dist # TODO remove?
-                    #for rr in tests[i][1].list_regions(rt):
+                        distance_where_best[rt] += 0 #tt[1].max_dist # TODO remove?
+                    #for rr in tt[1].list_regions(rt):
                     for rr in t[rt]['air']:
                         try:
-                            tmpdist = tests[i][1].dist(rr, the_good_region, rt)
+                            tmpdist = tt[1].dist(rr, the_good_region, rt)
                         except KeyError:
                             tmpdist = -1
                         if tmpdist > 0: # small bias with islands here
                             distance_where_sum[rt] += tmpdist*probabilities_where[r]
-                    max_distance[rt] += tests[i][1].max_dist
+                    max_distance[rt] += tt[1].max_dist
 
 
             #print results[i] # real battle that happened
@@ -1021,7 +1023,7 @@ if __name__ == "__main__":
         for g in glob.iglob(sys.argv[2] + '/*.rgd'):
             fnamelist.append(g)
     else:
-        fnamelist = sys.argv[1:]
+        fnamelist = [fnam for fnam in sys.argv[1:] if fnam[0] != '-']
     tests = []
     results = []
     tactics = TacticsMatchUp()
@@ -1091,7 +1093,8 @@ if __name__ == "__main__":
                 pr = data_tools.players_races(f)
                 tactics.count_battles(extract_tactics_battles(fname, pr, dm, pm))
 
-    tactics.normalize()
+    if learn == True:
+        tactics.normalize()
     if '-s' in sys.argv[1:]:
         pickle.dump(tactics, open('models.pickle', 'w'))
     if testing:
