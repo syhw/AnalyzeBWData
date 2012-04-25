@@ -11,10 +11,10 @@ except:
     print "you need numpy"
     sys.exit(-1)
 
-DEBUG_LEVEL = 1 # 0: no debug output, 1: some, 2: all
+DEBUG_LEVEL = 0 # 0: no debug output, 1: some, 2: all
 HISTOGRAMS = True
 testing = True # learn only or test on NUMBER_OF_TEST_GAMES
-NUMBER_OF_TEST_GAMES = 50 # number of games to evaluates the tactical model
+NUMBER_OF_TEST_GAMES = 10 # number of games to evaluates the tactical model
 # if this number is greater than the total number of games,
 # the test set will be the training set (/!\ BAD evaluation)
 
@@ -23,6 +23,7 @@ NUMBER_OF_TEST_GAMES = 50 # number of games to evaluates the tactical model
 # TODO TRY an eco score like the tactical score ==> sum to 1
 # TODO VERIFY probas (sum to 1) and tables contents (bias? priors?)
 # TODO ADDITIONAL: A (where happens the attack) comes from a distrib "where it is possible", Dirichlet prior on multinomial?
+# TODO TRY max scores of Reg and CDR (in a new region type Combo)
 
 SECONDS_BEFORE = 0 # number of seconds before the attack to update state
 ADD_SMOOTH = 1.0 # Laplace smoothing, could be less than 1.0
@@ -275,7 +276,7 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
             tmpres = data_tools.parse_attacks(line)
             cdr = pm.get_CDR(tmpres[1][0], tmpres[1][1])
             reg = pm.get_Reg(tmpres[1][0], tmpres[1][1])
-            regions = {'Reg': reg, "CDR": cdr}
+            regions = {'Reg': reg, 'CDR': cdr}
             units = data_tools.parse_dicts(line)
             units = obs.heuristics_remove_observers(units)
             if len(units[0]) < 2:
@@ -351,7 +352,8 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
                             print "DEBUG", tmp[rt][k][cdr]
 
             battles.append((tmpres[0], tmp, dpa, pr[attacker], regions))
-            #              (list of types, dict of distribs, CDR, Reg)
+            # (list of types, dict of distribs, dict of possible attack types, 
+            #  attacker's race, dict of attacked regions)
     return battles
 
 def extract_tests(fname, dm, pm=None):
@@ -858,7 +860,7 @@ class TacticalModel:
         assert(len(tests) == len(results))
         if len(results) == 0:
             return 
-        tot_tests = len(tests)
+        tot_tests = {'Reg': len(tests), 'CDR': len(tests)}
         good_where_how = {'Reg': 0, 'CDR': 0}
         good_where = {'Reg': 0, 'CDR': 0}
         number_at = {} # number of attacks for each attack type
@@ -882,8 +884,9 @@ class TacticalModel:
                 # + soft evidences
                 the_good_region = results[i][-1][rt]
                 if the_good_region not in t[rt]['air']:
-                    print >> sys.stderr, "ERROR", the_good_region, "not in t[rt][air]"
-                    tot_tests -= 1
+                    print >> sys.stderr, "ERROR", the_good_region, "not in t[rt][air], type:", rt
+                    #print t[rt]
+                    tot_tests[rt] -= 1
                     continue
                 probabilities_where = {}
                 probs_where = []
@@ -983,18 +986,18 @@ class TacticalModel:
             #print results[i] # real battle that happened
         for rt in good_where_how:
             print "Type:", rt
-            print "Good where predictions:", good_where[rt]*1.0/tot_tests
-            print "Good where+how predictions:", good_where_how[rt]*1.0/tot_tests
-            print "Mean rank where predictions:", rank_where[rt]*1.0/tot_tests, "mean max rank:", sum_max_rank[rt]*1.0/tot_tests
-            print "Mean prob[where_happened] / prob[best_guest] where predictions:", percent_of_good_prob[rt]*1.0/tot_tests
+            print "Good where predictions:", good_where[rt]*1.0/tot_tests[rt], ":", good_where[rt], "/", tot_tests[rt]
+            print "Good where+how predictions:", good_where_how[rt]*1.0/tot_tests[rt], ":", good_where_how[rt], "/", tot_tests[rt]
+            print "Mean rank where predictions:", rank_where[rt]*1.0/tot_tests[rt], "mean max rank:", sum_max_rank[rt]*1.0/tot_tests[rt]
+            print "Mean prob[where_happened] / prob[best_guest] where predictions:", percent_of_good_prob[rt]*1.0/tot_tests[rt]
             if WITH_DISTANCE_RANKING:
-                print "Mean distance best where predictions:", distance_where_best[rt]*1.0/tot_tests
-                print "Mean distance sum where predictions:", distance_where_sum[rt]*1.0/tot_tests
-                print "Mean max distance for information:", max_distance[rt]/tot_tests
+                print "Mean distance best where predictions:", distance_where_best[rt]*1.0/tot_tests[rt]
+                print "Mean distance sum where predictions:", distance_where_sum[rt]*1.0/tot_tests[rt]
+                print "Mean max distance for information:", max_distance[rt]/tot_tests[rt]
             print "Mean top8 regions probabilities:"
-            print top8[rt]/tot_tests
+            print top8[rt]/tot_tests[rt]
             print "Mean top8 number of good predictions:"
-            print top8pred[rt]/tot_tests
+            print top8pred[rt]/tot_tests[rt]
             print "TODO: metrics on where x how" # TODO
             total = 0
             good = 0
