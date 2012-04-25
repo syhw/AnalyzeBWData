@@ -11,10 +11,10 @@ except:
     print "you need numpy"
     sys.exit(-1)
 
-DEBUG_LEVEL = 0 # 0: no debug output, 1: some, 2: all
+DEBUG_LEVEL = 1 # 0: no debug output, 1: some, 2: all
 HISTOGRAMS = True
 testing = True # learn only or test on NUMBER_OF_TEST_GAMES
-NUMBER_OF_TEST_GAMES = 10 # number of games to evaluates the tactical model
+NUMBER_OF_TEST_GAMES = 50 # number of games to evaluates the tactical model
 # if this number is greater than the total number of games,
 # the test set will be the training set (/!\ BAD evaluation)
 
@@ -883,13 +883,6 @@ class TacticalModel:
                 #             / \sum{A,EI,TI,B,ATI}[P(EI,TI,B,ATI|A)P(A)]
                 # + soft evidences
                 the_good_region = results[i][-1][rt]
-                if the_good_region not in tt[1].list_regions(rt):
-                    print >> sys.stderr, "ERROR", the_good_region, "not in dm, type:", rt, "test:", tt[-2]
-                if the_good_region not in t[rt]['air']:
-                    print >> sys.stderr, "ERROR", the_good_region, "not in t[rt]['air'], type:", rt, "test:", tt[-2]
-                    #print t[rt]
-                    tot_tests[rt] -= 1
-                    continue
                 probabilities_where = {}
                 probs_where = []
                 max_where = -1.0
