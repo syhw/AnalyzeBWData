@@ -1,10 +1,15 @@
 class Unit:
-    def __init__(self, uid, unit_name, player, cdr=-1, reg=-1):
+    def __init__(self, uid, unit_name, player, dm, cdr=-1, reg=-1):
         self.uid = uid
         self.name = unit_name
         self.player = player
-        self.CDR = cdr
-        self.Reg = reg
+        self.CDR = -1
+        self.Reg = -1
+        if type(dm) != int:
+            if reg in dm.dist_Reg:
+                self.Reg = reg
+            if cdr in dm.dist_CDR:
+                self.CDR = cdr
     def __getitem__(self, x):
         if x == 'CDR':
             return self.CDR
@@ -19,13 +24,14 @@ class GameState:
     Keeps track of alive units and their positions, keeps tracks of bases, 
     tracked_units/remove/add could be refactored: tracked_u[uid] = Unit(uid,...
     """
-    def __init__(self):
+    def __init__(self, dm):
         self.players_races = {} # races[player] in {'P', 'T', 'Z'}
         self.players_bases = {} # bases[player]['CDR'/'Reg'] = {where: number}
         self.floc = None
         self.last_loc_frame = -1
         self.tracked_units = {} 
         self.base_uid = set()
+        self.dm = dm
 
     def created(self, line):
         l = line.split(',')
@@ -40,7 +46,7 @@ class GameState:
         if len(l) < 9:
             self.tracked_units[uid] = Unit(uid, l[4], l[1])
         else:
-            self.tracked_units[uid] = Unit(uid, l[4], l[1], 
+            self.tracked_units[uid] = Unit(uid, l[4], l[1], self.dm,
                     int(l[-2]), int(l[-1]))
         if 'Terran Command Center' in line or 'Protoss Nexus' in line or 'Zerg Hatchery' in line:
             self.add_base(self.tracked_units[uid])
@@ -50,12 +56,12 @@ class GameState:
         uid = int(l[3])
         if len(l) < 9:
             if uid in self.tracked_units:
-                self.tracked_units[uid] = Unit(uid, l[4], l[1],
+                self.tracked_units[uid] = Unit(uid, l[4], l[1], self.dm,
                     self.tracked_units[uid].CDR, self.tracked_units[uid].Reg)
             else:
                 self.tracked_units[uid] = Unit(uid, l[4], l[1])
         else:
-            self.tracked_units[uid] = Unit(uid, l[4], l[1], 
+            self.tracked_units[uid] = Unit(uid, l[4], l[1], self.dm,
                     int(l[-2]), int(l[-1]))
         if 'Zerg Hatchery' in line: #or 'Zerg Lair' in line or 'Zerg Hive' in line:
             self.add_base(self.tracked_units[uid])
@@ -91,13 +97,10 @@ class GameState:
         if uid in self.base_uid and self.players_races[self.tracked_units[uid].player] == 'T':
             # we want only moving CC to be removed as base
             self.remove_base(self.tracked_units[uid])
-        if t == 'Reg':
+        if t == 'Reg' and r in self.dm.dist_Reg:
             self.tracked_units[uid].Reg = r
-        elif t == 'CDR':
+        elif t == 'CDR' and r in self.dm.dist_CDR:
             self.tracked_units[uid].CDR = r
-        else:
-            print "TYPE ERROR"
-            return "TYPE ERROR"
         if 'Terran Command Center' in self.tracked_units[uid].name:
             # it should be when it lands...
             self.add_base(self.tracked_units[uid])

@@ -253,7 +253,7 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
     returns a list of battles [([types], scoredict, cdr, reg)]
     """
     obs = attack_tools.Observers()
-    st = state_tools.GameState()
+    st = state_tools.GameState(dm)
     st.track_loc(open(fname[:-3]+'rld'))
     battles = []
     buf_lines = []
@@ -364,7 +364,7 @@ def extract_tests(fname, dm, pm=None):
     [{'Reg': {score_type: {reg: distrib}},'CDR': {score_type: {reg: distrib}}}]
     """
     obs = attack_tools.Observers()
-    st = state_tools.GameState()
+    st = state_tools.GameState(dm)
     st.track_loc(open(fname[:-3]+'rld'))
     tests = []
     buf_lines = []
