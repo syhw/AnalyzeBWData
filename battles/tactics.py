@@ -11,10 +11,10 @@ except:
     print "you need numpy"
     sys.exit(-1)
 
-DEBUG_LEVEL = 1 # 0: no debug output, 1: some, 2: all
+DEBUG_LEVEL = 0 # 0: no debug output, 1: some, 2: all
 HISTOGRAMS = True
 testing = True # learn only or test on NUMBER_OF_TEST_GAMES
-NUMBER_OF_TEST_GAMES = 50 # number of games to evaluates the tactical model
+NUMBER_OF_TEST_GAMES = 20 # number of games to evaluates the tactical model
 # if this number is greater than the total number of games,
 # the test set will be the training set (/!\ BAD evaluation)
 
@@ -25,10 +25,11 @@ NUMBER_OF_TEST_GAMES = 50 # number of games to evaluates the tactical model
 # TODO ADDITIONAL: A (where happens the attack) comes from a distrib "where it is possible", Dirichlet prior on multinomial?
 # TODO TRY max scores of Reg and CDR (in a new region type Combo)
 
-SECONDS_BEFORE = 10 # number of seconds before the attack to update state
+SECONDS_BEFORE = 30 # number of seconds before the attack to update state (for learning)
+SECONDS_BEFORE_TESTS = 30 # for tests only
 ADD_SMOOTH = 1.0 # Laplace smoothing, could be less than 1.0
 ADD_SMOOTH_H = 0.1 # Laplace smoothing, could be less than 1.0
-TACT_PARAM = -1.6 # power of the distance of units to/from regions
+TACT_PARAM = -1.5 # power of the distance of units to/from regions
 # -1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
 WITH_DROP = True # with or without Drop as an attack type
@@ -37,8 +38,8 @@ if not WITH_DROP:
     INFER_DROP = False
 ALT_ECO_SCORE = False # compute an alternative eco score like the tactical one
 ECO_SCORE_PARA = 1.6 # power of the distance of workers to/from regions
-SOFT_EVIDENCE_AD_GD = False # tells if we should use binary AD and GD
-bins_ad_gd = [0.0, 0.1, 0.5] # tells the bins lower limits (quantiles) values
+SOFT_EVIDENCE_AD_GD = True # tells if we should use binary AD and GD
+bins_ad_gd = [0.0, 0.1, 0.5, 0.95] # tells the bins lower limits (quantiles) values
 if SOFT_EVIDENCE_AD_GD:
     bins_ad_gd = [0.0, 1.0]
 bins_detect = [0.0, 0.99, 1.99] # none, one, many detectors
@@ -46,7 +47,7 @@ bins_tactical = [0.0, 0.1, 0.2, 0.4]
 bins_eco = [0.0, 0.05, 0.51] # no eco, small eco, more than half of total
 tactical_values = {'Reg': [], 'CDR': []}
 WITH_DISTANCE_RANKING = True # with or without distance as an evaluation metric
-POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY = True # don't use units (don't cheat) to
+POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY = False # don't use units (don't cheat) to
 # determine possible attacks, close to what the Opening/TT predictor gives
 
 ########  filling the functions list to test for possible attacks ########
@@ -381,7 +382,7 @@ def extract_tests(fname, dm, pm=None):
         if started and len(l) > 1:
             time_sec = int(l[0])/24
             buf_lines.append((time_sec, line))
-            while len(buf_lines) and (buf_lines[0][0] + SECONDS_BEFORE) <= time_sec:
+            while len(buf_lines) and (buf_lines[0][0] + SECONDS_BEFORE_TESTS) <= time_sec:
                 st.update(buf_lines.pop(0)[1])
         else:
             st.update(line)
