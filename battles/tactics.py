@@ -1,4 +1,4 @@
-import sys, os, pickle, copy, itertools, functools, random
+import sys, os, pickle, copy, itertools, functools, random, math
 from common import data_tools
 from common import unit_types
 from common import attack_tools
@@ -32,14 +32,15 @@ ADD_SMOOTH_H = 0.1 # Laplace smoothing, could be less than 1.0
 TACT_PARAM = -1.5 # power of the distance of units to/from regions
 # -1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
+SMOOTHED_AD_GD = True
 WITH_DROP = True # with or without Drop as an attack type
 INFER_DROP = True # with or without inference of drops
 if not WITH_DROP:
     INFER_DROP = False
 ALT_ECO_SCORE = False # compute an alternative eco score like the tactical one
-ECO_SCORE_PARA = 1.6 # power of the distance of workers to/from regions
-SOFT_EVIDENCE_AD_GD = True # tells if we should use binary AD and GD
-bins_ad_gd = [0.0, 0.1, 0.5, 0.95] # tells the bins lower limits (quantiles) values
+ECO_SCORE_PARAM = -1.5 # power of the distance of workers to/from regions
+SOFT_EVIDENCE_AD_GD = False # tells if we should use binary AD and GD
+bins_ad_gd = [0.0, 0.1, 0.5, 1.0] # tells the bins lower limits (quantiles) values
 if SOFT_EVIDENCE_AD_GD:
     bins_ad_gd = [0.0, 1.0]
 bins_detect = [0.0, 0.99, 1.99] # none, one, many detectors
@@ -104,6 +105,9 @@ def army(state, player):
     """ In the given 'state', returns the army (in Unit()) of the 'player' """
     return select(state, player, unit_types.military_set)
 
+def unhash(reg_center):
+    return ((reg_center << 16) - 1, reg_center & (reg_center << 16))
+
 def compute_scores(state, player, dm, inset, scoring_f, t='Reg'):
     """ computes the scores with the scoring_f function of all regions 
     of type t and returns (scores_dict, total) """
@@ -113,8 +117,25 @@ def compute_scores(state, player, dm, inset, scoring_f, t='Reg'):
     for tmpr in dm.list_regions(t): # yes, it's dumb, but I don't want a sparse dict()
         s[tmpr] = 0.0               # even though I could get(x, default)...
         for unit in x:
-            if unit[t] == tmpr:
-                s[tmpr] += scoring_f(unit.name)
+            if unit[t] == -1:
+                continue
+            if SMOOTHED_AD_GD:
+                d = -1.0
+                if unit.name in unit_types.flying_set:
+                    # here we could log real unit position in the state
+                    # and use this to be more precise
+                    p1x, p1y = unhash(unit[t])
+                    p2x, p2y = unhash(tmpr)
+                    d = math.sqrt((p2y-p1y)**2 + (p2x-p1x)**2)
+                else:
+                    d = dm.dist(unit[t], tmpr, t)
+                if d >= 0.0:
+                    s[tmpr] += scoring_f(unit.name)*((1.0+d)**TACT_PARAM)
+                else:
+                    s[tmpr] += scoring_f(unit.name)*(dm.max_dist**TACT_PARAM)
+            else:
+                if unit[t] == tmpr:
+                    s[tmpr] += scoring_f(unit.name)
         tot += s[tmpr]
     return (s, tot)
 
