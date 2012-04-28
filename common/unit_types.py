@@ -102,6 +102,14 @@ invis_tech = [['Terran Covert Ops', 'Terran Academy'], ['Terran Control Tower'],
 
 drop_tech = ['Terran Control Tower', 'Protoss Robotics Facility', 'Zerg Lair']
 
+static_defense_set = set(['Terran Bunker', 'Terran Missile Turret',
+            'Protoss Shield Battery', 'Protoss Photon Cannon',
+            'Zerg Creep Colony', 'Zerg Spore Colony', 'Zerg Sunken Colony'])
+
+static_defense_shoot_down_set = static_defense_set and shoot_down_set
+
+static_defense_shoot_up_set = static_defense_set and shoot_up_set
+
 @memoize
 def score_unit(unit):
     return unit_min_price.get(unit, 0) + (4.0/3)*unit_gas_price.get(unit, 0) + 25*unit_double_pop.get(unit, 0)

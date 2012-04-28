@@ -19,34 +19,50 @@ NUMBER_OF_TEST_GAMES = 20 # number of games to evaluates the tactical model
 # the test set will be the training set (/!\ BAD evaluation)
 
 # TODO maxi refactor
-# TODO REVIEW the tactical score
 # TODO TRY an eco score like the tactical score ==> sum to 1
-# TODO VERIFY probas (sum to 1) and tables contents (bias? priors?)
 # TODO ADDITIONAL: A (where happens the attack) comes from a distrib "where it is possible", Dirichlet prior on multinomial?
 # TODO TRY max scores of Reg and CDR (in a new region type Combo)
 
 SECONDS_BEFORE = 30 # number of seconds before the attack to update state (for learning)
 SECONDS_BEFORE_TESTS = 30 # for tests only
+
 ADD_SMOOTH = 1.0 # Laplace smoothing, could be less than 1.0
 ADD_SMOOTH_H = 0.1 # Laplace smoothing, could be less than 1.0
+
+# Tactical score(s) discretization
+bins_tactical = [0.0, 0.1, 0.2, 0.4]
 TACT_PARAM = -1.5 # power of the distance of units to/from regions
+TACTICAL_SCORE_WITH_AIR_UNITS = True # count straight line for air
 # -1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
-SMOOTHED_AD_GD = True
+
+# Economical score discretization
+bins_eco = [0.0, 0.05, 0.51] # no eco, small eco, more than half of total
+SIMPLE_ECO_SCORE = True # compute a simple (peons counting) eco score. TODO: False
+ECO_SCORE_PARAM = -1.5 # power of the distance of workers to/from regions TODO
+
+# Drops or not?
 WITH_DROP = True # with or without Drop as an attack type
 INFER_DROP = True # with or without inference of drops
 if not WITH_DROP:
     INFER_DROP = False
-ALT_ECO_SCORE = False # compute an alternative eco score like the tactical one
-ECO_SCORE_PARAM = -1.5 # power of the distance of workers to/from regions
-SOFT_EVIDENCE_AD_GD = False # tells if we should use binary AD and GD
+
+# Air and ground scores discretization
 bins_ad_gd = [0.0, 0.1, 0.5, 1.0] # tells the bins lower limits (quantiles) values
+SMOOTHED_AD_GD = True # smooth AD/GD as for the tactical score?
+SOFT_EVIDENCE_AD_GD = False # tells if we should use binary AD and GD
 if SOFT_EVIDENCE_AD_GD:
-    bins_ad_gd = [0.0, 1.0]
+    bins_ad_gd = [0.0, 1.0] # just for the length
+SIMPLE_AD_GD_SCORES = False # use simple counting of a type of (static) units
+if SIMPLE_AD_GD_SCORES:
+    bins_ad_gd = [0.0, 1.99, 3.99]
+
+# Detectors (defense against invisible units) discretization
 bins_detect = [0.0, 0.99, 1.99] # none, one, many detectors
-bins_tactical = [0.0, 0.1, 0.2, 0.4]
-bins_eco = [0.0, 0.05, 0.51] # no eco, small eco, more than half of total
+
+# Debug
 tactical_values = {'Reg': [], 'CDR': []}
+# Evaluation:
 WITH_DISTANCE_RANKING = True # with or without distance as an evaluation metric
 POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY = False # don't use units (don't cheat) to
 # determine possible attacks, close to what the Opening/TT predictor gives
@@ -150,7 +166,13 @@ def compute_tactical_scores(state, player, dm, t='Reg'):
         for unit in a:
             if unit[t] == -1:
                 continue
-            d = dm.dist(unit[t], tmpr, t)
+            d = -1
+            if TACTICAL_SCORE_WITH_AIR_UNITS and unit.name in unit_types.flying_set:
+                p1x, p1y = unhash(unit[t])
+                p2x, p2y = unhash(tmpr)
+                d = math.sqrt((p2y-p1y)**2 + (p2x-p1x)**2)
+            else:
+                d = dm.dist(unit[t], tmpr, t)
             if d >= 0.0:
                 s[tmpr] += unit_types.score_unit(unit.name)*((1.0+d)**TACT_PARAM)
             else:
@@ -246,11 +268,11 @@ def units_distrib(score): # score is given relative to attackers force
         d = {0: 0.0, 1: 0.0}
         if score == 0.0:
             d[0] = 1.0
-        elif score >= 1.0:
+        elif score >= 1.5:
             d[1] = 1.0
         else:
-            d[0] = 1.0 - score
-            d[1] = score
+            d[0] = 1.0 - score/1.5
+            d[1] = score/1.5
         return d
     else:
         d = {};
@@ -344,17 +366,29 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
                     s[k] = detect_distrib(s[k])
                 tmp[rt]['detect'] = s
                 s = {}
-                s_d, tot_d = compute_scores(st, defender, dm, unit_types.shoot_down_set, unit_types.score_unit, t=rt)
-                s_a, tot_a = compute_scores(st, attacker, dm, unit_types.ground_set, unit_types.score_unit, t=rt)
-                for k in s_d:
-                    s[k] = units_distrib(s_d[k] / (0.1 + s_a[k]))
-                tmp[rt]['ground'] = s
+                if SIMPLE_AD_GD_SCORES:
+                    s, tot = compute_scores(st, defender, dm, unit_types.static_defense_shoot_down_set, lambda x: 1.0, t=rt)
+                    for k in s:
+                        s[k] = detect_distrib(s[k])
+                    tmp[rt]['ground'] = s
+                else:
+                    s_d, tot_d = compute_scores(st, defender, dm, unit_types.shoot_down_set, unit_types.score_unit, t=rt)
+                    s_a, tot_a = compute_scores(st, attacker, dm, unit_types.ground_set, unit_types.score_unit, t=rt)
+                    for k in s_d:
+                        s[k] = units_distrib(s_d[k] / (0.1 + s_a[k]))
+                    tmp[rt]['ground'] = s
                 s = {}
-                s_d, tot_d = compute_scores(st, defender, dm, unit_types.shoot_up_set, unit_types.score_unit, t=rt)
-                s_a, tot_a = compute_scores(st, attacker, dm, unit_types.flying_set, unit_types.score_unit, t=rt)
-                for k in s_d:
-                    s[k] = units_distrib(s_d[k] / (0.1 + s_a[k]))
-                tmp[rt]['air'] = s
+                if SIMPLE_AD_GD_SCORES:
+                    s, tot = compute_scores(st, defender, dm, unit_types.static_defense_shoot_up_set, lambda x: 1.0, t=rt)
+                    for k in s:
+                        s[k] = detect_distrib(s[k])
+                    tmp[rt]['air'] = s
+                else:
+                    s_d, tot_d = compute_scores(st, defender, dm, unit_types.shoot_up_set, unit_types.score_unit, t=rt)
+                    s_a, tot_a = compute_scores(st, attacker, dm, unit_types.flying_set, unit_types.score_unit, t=rt)
+                    for k in s_d:
+                        s[k] = units_distrib(s_d[k] / (0.1 + s_a[k]))
+                    tmp[rt]['air'] = s
 
                 for test_r in dm.list_regions(rt):
                     assert(test_r in tmp[rt]['eco'])
@@ -1053,6 +1087,16 @@ if __name__ == "__main__":
     if '-s' in sys.argv[1:]:
         learn = False
     if testing:
+        print "nb of test:", NUMBER_OF_TEST_GAMES
+        print "secs before (learning):", SECONDS_BEFORE
+        print "secs before (testing):", SECONDS_BEFORE_TESTS
+        print "bins tactical score:", bins_tactical
+        print "tactical power param:", TACT_PARAM
+        print "bins eco score:", bins_eco
+        print "with drop?", WITH_DROP
+        print "bins AD GD scores:", bins_ad_gd
+        print "bins detectors:", bins_detect
+
         learngames = [fna for fna in fnamelist]
         testgames = []
         if NUMBER_OF_TEST_GAMES < len(fnamelist):
