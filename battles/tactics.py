@@ -30,14 +30,17 @@ ADD_SMOOTH = 1.0 # Laplace smoothing, could be less than 1.0
 ADD_SMOOTH_H = 0.1 # Laplace smoothing, could be less than 1.0
 
 # Tactical score(s) discretization
-bins_tactical = [0.0, 0.1, 0.2, 0.4]
+bins_tactical = [0.0, 0.05, 0.1, 0.2, 0.4, 0.8]
+#bins_tactical = [0.0, 0.075, 0.15, 0.3, 0.7]
+#bins_tactical = [0.0, 0.05, 0.15, 0.3, 0.6]
+#bins_tactical = [0.0, 0.05, 0.1, 0.2, 0.5]
 TACT_PARAM = -1.5 # power of the distance of units to/from regions
 TACTICAL_SCORE_WITH_AIR_UNITS = True # count straight line for air
 # -1.6 means than a region which is at distance 1 of the two halves of the army
 # of the player is 1.5 more important than one at distance 2 of the full army
 
 # Economical score discretization
-bins_eco = [0.0, 0.05, 0.51] # no eco, small eco, more than half of total
+bins_eco = [0.0, 0.05, 0.55] # no eco, small eco, more than half of total (and minus wandering/scout peons)
 SIMPLE_ECO_SCORE = True # compute a simple (peons counting) eco score. TODO: False
 ECO_SCORE_PARAM = -1.5 # power of the distance of workers to/from regions TODO
 
@@ -64,7 +67,7 @@ bins_detect = [0.0, 0.99, 1.99] # none, one, many detectors
 tactical_values = {'Reg': [], 'CDR': []}
 # Evaluation:
 WITH_DISTANCE_RANKING = True # with or without distance as an evaluation metric
-POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY = False # don't use units (don't cheat) to
+POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY = True # don't use units (don't cheat) to
 # determine possible attacks, close to what the Opening/TT predictor gives
 
 ########  filling the functions list to test for possible attacks ########
@@ -330,8 +333,8 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
             if INFER_DROP and max([True if d in units[0][attacker] else False for d in unit_types.drop]):
                 tmpres[0].append('DropAttack')
             if pr[attacker] == 'P' and 'InvisAttack' in tmpres and\
-                    'Protoss Dark Templar' not in units[attacker] and\
-                    'Protoss Arbiter' not in units[attacker]:
+                    'Protoss Dark Templar' not in units[attacker]: #and\
+                    #'Protoss Arbiter' not in units[attacker]:
                 tmpres.remove('InvisAttack')
 
             tmp = {'Reg': {}, 'CDR': {}}
@@ -552,7 +555,7 @@ class TacticsMatchUp:
 
                 ax = fig.add_subplot(221)
                 ind = np.arange(len(bins_eco))
-                ax.set_ylabel("P(A=1|EI)")
+                ax.set_ylabel("P(A=1|E)")
                 ax.set_xticks(ind+width/2)
                 ax.set_xticklabels(["no eco", "low eco", "high eco"])
                 ax.set_xlabel("for defender")
@@ -562,12 +565,12 @@ class TacticsMatchUp:
 
                 ax = fig.add_subplot(222)
                 ind = np.arange(len(bins_tactical))
-                ax.set_ylabel("P(A=1|TI)")
+                ax.set_ylabel("P(A=1|T)")
                 ax.set_xticks(ind+width/2)
                 ax.set_xlabel("tactical value (discretized)")
-                b = bins_tactical + [1.0]
-                ax.set_xticklabels([str(b[i])+"-"+str(b[i+1]) for i in range(len(b)-1)])
-                ax.set_xlabel("for defender")
+                b = bins_tactical
+                ax.set_xticklabels([str(b[i])+"-" for i in range(len(b)-1)])
+                ax.set_xlabel("(lower) for defender")
                 s = [m.ask_A(rt, TI=i) for i in ind]
                 #print s
                 ax.bar(ind, s, width, color='r')
@@ -584,18 +587,59 @@ class TacticsMatchUp:
 
                 ax = fig.add_subplot(224)
                 ind = np.arange(len(bins_tactical))
-                ax.set_ylabel("P(A=1|ATI)")
+                ax.set_ylabel("P(A=1|TA)")
                 ax.set_xticks(ind+width/2)
                 ax.set_xlabel("tactical value (discretized)")
-                b = bins_tactical + [1.0]
-                ax.set_xticklabels([str(b[i])+"-"+str(b[i+1]) for i in range(len(b)-1)])
-                ax.set_xlabel("for attacker")
+                b = bins_tactical
+                ax.set_xticklabels([str(b[i])+"-" for i in range(len(b)-1)])
+                ax.set_xlabel("(lower) for attacker")
                 s = [m.ask_A(rt, ATI=i) for i in ind]
                 #print s
                 ax.bar(ind, s, width, color='r')
                 
                 #plt.show()
                 plt.savefig("where"+rt+race+".png")
+
+                from mpl_toolkits.mplot3d import Axes3D
+                fig = plt.figure()
+                ax = fig.add_subplot(111, projection='3d')
+                for c, ind2 in zip(['r', 'g', 'b', 'y', 'm', 'c'], range(len(bins_tactical))):
+                    ind1 = np.arange(len(bins_tactical))
+                    ys = [m.ask_A(rt, TI=i, ATI=ind2) for i in ind1]
+                    cs = [c] * len(ind1)
+                    ax.bar(ind1, ys, zs=ind2, zdir='y', color=cs, alpha=0.8)
+
+                ax.set_xlabel('T')
+                ax.set_ylabel('TA')
+                ax.set_zlabel('P(A|T,TA)')
+                b = bins_tactical
+                ax.set_xticks(np.arange(len(bins_tactical))+width/2)
+                ax.set_yticks(np.arange(len(bins_tactical))+width/2)
+                ax.set_xticklabels([str(b[i])+"-" for i in range(len(b))])
+                ax.set_yticklabels([str(b[i])+"-" for i in range(len(b))])
+
+                #plt.show()
+                plt.savefig("where3D_TI_ATI_"+rt+race+".png")
+
+                fig = plt.figure()
+                ax = fig.add_subplot(111, projection='3d')
+                for c, ind2 in zip(['r', 'g', 'b', 'y', 'm', 'c'], range(len(bins_eco))):
+                    ind1 = np.arange(len(bins_tactical))
+                    ys = [m.ask_A(rt, EI=ind2, TI=i) for i in ind1]
+                    cs = [c] * len(ind1)
+                    ax.bar(ind1, ys, zs=ind2, zdir='y', color=cs, alpha=0.8)
+
+                ax.set_ylabel('E')
+                ax.set_xlabel('T')
+                ax.set_zlabel('P(A|E,T)')
+                b = bins_tactical
+                ax.set_yticks(np.arange(len(bins_eco))+width/2)
+                ax.set_xticks(np.arange(len(bins_tactical))+width/2)
+                ax.set_yticklabels(["no eco", "low eco", "high eco"])
+                ax.set_xticklabels([str(b[i])+"-" for i in range(len(b))])
+
+                #plt.show()
+                plt.savefig("where3D_EI_TI_"+rt+race+".png")
 
             for rt in m.AD_GD_ID_knowing_H:
                 fig = plt.figure()
@@ -605,6 +649,7 @@ class TacticsMatchUp:
                 ind = np.arange(len(bins_ad_gd))
                 ax.set_xticks(ind+width/2)
                 ax.set_xlabel("air defense level")
+                ax.set_xticklabels([str(i) for i in bins_ad_gd])
                 ax.set_ylabel("P(H=Air|AD)")
                 s = [m.ask_H(rt, AD=i, H=1) for i in ind]
                 #print s
@@ -614,6 +659,8 @@ class TacticsMatchUp:
                 ind = np.arange(len(bins_ad_gd))
                 ax.set_xticks(ind+width/2)
                 ax.set_xlabel("ground defense level")
+                ax.set_xticklabels([str(i) for i in bins_ad_gd])
+                ax.set_ylabel("P(H=Air|AD)")
                 ax.set_ylabel("P(H=Ground|GD)")
                 s = [m.ask_H(rt, GD=i, H=0) for i in ind]
                 #print("P(H=Ground|GD)")
@@ -624,6 +671,8 @@ class TacticsMatchUp:
                 ind = np.arange(len(bins_ad_gd))
                 ax.set_xticks(ind+width/2)
                 ax.set_xlabel("ground defense level")
+                ax.set_xticklabels([str(i) for i in bins_ad_gd])
+                ax.set_ylabel("P(H=Air|AD)")
                 ax.set_ylabel("P(H=Invis|GD)")
                 s = np.array([m.ask_H(rt, GD=i, H=2) for i in ind])+1.0e-12
                 #print("P(H=Invis|GD)")
@@ -634,6 +683,8 @@ class TacticsMatchUp:
                 ind = np.arange(len(bins_detect))
                 ax.set_xticks(ind+width/2)
                 ax.set_xlabel("invis defense level")
+                ax.set_xticklabels(["no", "low", "high"])
+                ax.set_ylabel("P(H=Air|AD)")
                 ax.set_ylabel("P(H=Invis|ID)")
                 s = np.array([m.ask_H(rt, ID=i, H=2) for i in ind])+1.0e-12
                 #print("P(H=Invis|ID)")
@@ -645,6 +696,7 @@ class TacticsMatchUp:
                     ind = np.arange(len(bins_ad_gd))
                     ax.set_xticks(ind+width/2)
                     ax.set_xlabel("air defense level")
+                    ax.set_xticklabels([str(i) for i in bins_ad_gd])
                     ax.set_ylabel("P(H=Drop|AD)")
                     s = [m.ask_H(rt, AD=i, H=3) for i in ind]
                     #print s
@@ -654,6 +706,7 @@ class TacticsMatchUp:
                     ind = np.arange(len(bins_ad_gd))
                     ax.set_xticks(ind+width/2)
                     ax.set_xlabel("ground defense level")
+                    ax.set_xticklabels([str(i) for i in bins_ad_gd])
                     ax.set_ylabel("P(H=Drop|GD)")
                     s = [m.ask_H(rt, GD=i, H=3) for i in ind]
                     #print s
@@ -661,6 +714,46 @@ class TacticsMatchUp:
 
                 #plt.show()
                 plt.savefig("how"+rt+race+".png")
+
+                fig = plt.figure()
+                ax = fig.add_subplot(111, projection='3d')
+                for c, ind2 in zip(['r', 'g', 'b', 'y', 'm', 'c'], range(len(bins_ad_gd))):
+                    ind1 = np.arange(len(bins_ad_gd))
+                    ys = [m.ask_H(rt, GD=ind2, AD=i, H=0) for i in ind1]
+                    cs = [c] * len(ind1)
+                    ax.bar(ind1, ys, zs=ind2, zdir='y', color=cs, alpha=0.8)
+
+                ax.set_xlabel('GD')
+                ax.set_ylabel('AD')
+                ax.set_zlabel('P(H=ground|GD,AD)')
+                b = bins_ad_gd
+                ax.set_xticks(np.arange(len(bins_ad_gd))+width/2)
+                ax.set_yticks(np.arange(len(bins_ad_gd))+width/2)
+                ax.set_xticklabels([str(b[i])+"-" for i in range(len(b))])
+                ax.set_yticklabels([str(b[i])+"-" for i in range(len(b))])
+
+                #plt.show()
+                plt.savefig("how3D_ground_GD_AD"+rt+race+".png")
+
+                fig = plt.figure()
+                ax = fig.add_subplot(111, projection='3d')
+                for c, ind2 in zip(['r', 'g', 'b', 'y', 'm', 'c'], range(len(bins_ad_gd))):
+                    ind1 = np.arange(len(bins_ad_gd))
+                    ys = [m.ask_H(rt, GD=ind2, AD=i, H=1) for i in ind1]
+                    cs = [c] * len(ind1)
+                    ax.bar(ind1, ys, zs=ind2, zdir='y', color=cs, alpha=0.8)
+
+                ax.set_xlabel('GD')
+                ax.set_ylabel('AD')
+                ax.set_zlabel('P(H=ground|GD,AD)')
+                b = bins_ad_gd
+                ax.set_xticks(np.arange(len(bins_ad_gd))+width/2)
+                ax.set_yticks(np.arange(len(bins_ad_gd))+width/2)
+                ax.set_xticklabels([str(b[i])+"-" for i in range(len(b))])
+                ax.set_yticklabels([str(b[i])+"-" for i in range(len(b))])
+
+                #plt.show()
+                plt.savefig("how3D_air_GD_AD"+rt+race+".png")
 
             fig = plt.figure()
             fig.subplots_adjust(wspace=0.3, hspace=0.6)
@@ -933,6 +1026,8 @@ class TacticalModel:
         max_distance = {'Reg': 0.0, 'CDR': 0.0}
         top8 = {'Reg': np.array([0.0 for i in range(8)]),
                 'CDR': np.array([0.0 for i in range(8)])}
+        top8how = {'Reg': np.array([np.array([0.0 for i in range(self.size_H)]) for i in range(8)]),
+                'CDR': np.array([np.array([0.0 for i in range(self.size_H)]) for i in range(8)])}
         top8pred = {'Reg': np.array([0.0 for i in range(8)]),
                     'CDR': np.array([0.0 for i in range(8)])}
         for i,tt in enumerate(tests):
@@ -982,6 +1077,7 @@ class TacticalModel:
                 # + soft-evidences
                 probabilities_how = {}
                 probabilities_where_how = {}
+                p_w_h = {}
                 max_where_how = -1.0
                 where_how = 0
                 for r in t[rt]['air']:
@@ -999,7 +1095,10 @@ class TacticalModel:
                                             * (self.AD_GD_ID_knowing_H[rt][ais,gs,ds,:]*self.H_knowing_P[:,pa])
                     probabilities_how[r] = tmp_H_dist/sum(tmp_H_dist)
                     tmp = tmp_H_dist * probabilities_where[r]
+                    p_w_h[r] = -1.0
                     for h,prob in enumerate(tmp):
+                        if prob > p_w_h[r]:
+                            p_w_h[r] = prob
                         if prob > max_where_how:
                             max_where_how = prob
                             where_how = r
@@ -1007,6 +1106,15 @@ class TacticalModel:
                 how_p = [(pp,ii) for ii,pp in enumerate(probabilities_how[the_good_region])]
                 how_p.sort()
                 how_p.reverse()
+                tmpprobwherehow = [(p_w_h[rr],rr,hh) for rr,hh in probabilities_where_how.iteritems()] # [(proba,region,how_distrib)]
+                tmpprobwherehow.sort()
+                tmpprobwherehow.reverse()
+                for iii in range(len(top8how[rt])):
+                    if iii < len(tmpprobwherehow):
+                        tmphownparray = tmpprobwherehow[iii][2]
+                    else:
+                        tmphownparray = np.array([0.0 for jj in range(self.size_H)])
+                    top8how[rt][iii] += np.array(tmphownparray)
                 for attack_type in results[i][0]:
                     number_at[attack_type] = number_at.get(attack_type, 0) + 1
                     if TacticalModel.attack_type_to_ind(attack_type) == how_p[0][1]:
@@ -1056,6 +1164,8 @@ class TacticalModel:
             print top8[rt]/tot_tests[rt]
             print "Mean top8 number of good predictions:"
             print top8pred[rt]/tot_tests[rt]
+            print "Mean top8 where+how probabilities:"
+            print top8how[rt]/tot_tests[rt]
             print "TODO: metrics on where x how" # TODO
             total = 0
             good = 0
@@ -1096,6 +1206,7 @@ if __name__ == "__main__":
         print "with drop?", WITH_DROP
         print "bins AD GD scores:", bins_ad_gd
         print "bins detectors:", bins_detect
+        print "Possible from TT only", POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY
 
         learngames = [fna for fna in fnamelist]
         testgames = []
