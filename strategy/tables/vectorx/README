@@ -1,0 +1,4 @@
+XvY.txt are std::vector<std::set<int> > vector_X, 
+one vector entry (= one set) per line.
+XvY.txt match-up in which we are race Y predicting against X.
+ENUM.txt contains the enum names in their orders (restart at 0 for each race).
