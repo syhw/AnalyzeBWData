@@ -589,7 +589,7 @@ class TacticsMatchUp:
                 ax.set_xticks(ind+width/2)
                 ax.set_xlabel("tactical value (discretized)")
                 b = bins_tactical
-                ax.set_xticklabels([str(b[i])+"-" for i in range(len(b)-1)])
+                ax.set_xticklabels([str(b[i])+"-" for i in range(len(b))])
                 ax.set_xlabel("(lower) for defender")
                 s = [m.ask_A(rt, TI=i) for i in ind]
                 #print s
@@ -611,7 +611,7 @@ class TacticsMatchUp:
                 ax.set_xticks(ind+width/2)
                 ax.set_xlabel("tactical value (discretized)")
                 b = bins_tactical
-                ax.set_xticklabels([str(b[i])+"-" for i in range(len(b)-1)])
+                ax.set_xticklabels([str(b[i])+"-" for i in range(len(b))])
                 ax.set_xlabel("(lower) for attacker")
                 s = [m.ask_A(rt, ATI=i) for i in ind]
                 #print s
