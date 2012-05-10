@@ -11,6 +11,7 @@ except:
 SCORES_REGRESSION = False
 MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
 MAX_FORCES_RATIO = 1.5 # max differences between engaged forces
+WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
 
 def evaluate_pop(d):
     r = {}
@@ -121,118 +122,224 @@ def format_battle_for_clust(players_races, armies_battle):
             r[v].append(copy.deepcopy(armies_battle[1][k]))
     return r
 
+class ArmyCompositions:
+    def __init__(self, race):
+        if race == 'P':
+            self.compositions = {'zealot': {'Protoss Zealot': 0.3},
+                    #'zealots': {'Protoss Zealot': 0.9},
+                    'goon': {'Protoss Dragoon': 0.3},
+                    #'goons': {'Protoss Dragoon': 0.9},
+                    #'T1mix': {'Protoss Zealot': 0.3, 'Protoss Dragoon': 0.3},
+                    'DT': {'Protoss Dark Templar': 0.6},
+                    'HT': {'Protoss High Templar': 0.1}, # 0.05?
+                    'reaver': {'Protoss Reaver': 0.1}, # 0.05?
+                    'drop': {'Protoss Shuttle': 0.2},
+                    'arbiter': {'Protoss Arbiter': 0.05},
+                    'carrier': {'Protoss Carrier': 0.2},
+                    'corsair': {'Protoss Corsair': 0.2},
+                    #'sair_DT': {'Protoss Corsair': 0.2, 'Protoss Dark Templar': 0.2},
+                    'observer': {'Protoss Observer': 0.01},
+                    'darchon': {'Protoss Dark Archon': 0.05},
+                    'archon': {'Protoss Archon': 0.1}, # 0.2?
+                    }
+        elif race == 'T':
+            self.compositions = {'marine': {'Terran Marine': 0.3},
+                    'medic': {'Terran Medic': 0.1},
+                    'firebat': {'Terran Firebat': 0.1},
+                    'tank': {'Terran Siege Tank': 0.2},
+                    'vulture': {'Terran Vulture': 0.25},
+                    'goliath': {'Terran Goliath': 0.2},
+                    'ghost': {'Terran Ghost': 0.1},
+                    'drop': {'Terran Dropship': 0.1},
+                    'wraith': {'Terran Wraith': 0.5},
+                    'vessel': {'Terran Science Vessel': 0.05},
+                    'BC': {'Terran Battlecruiser': 0.2}
+                    }
+        elif race == 'Z':
+            pass # TODO
+
+
+class percent_list(list):
+    def new_battle(self, d):
+        race = d.iterkeys().next()[0] # first character of the first unit
+        tmp = [d.get(u, 0.0) for u in unit_types.by_race.military[race]]
+        tmp.append(d.get(unit_types.by_race.drop[race], 0.0))
+        if WITH_STATIC_DEFENSE:
+            tmp.extend([d.get(u, 0.0) for u in unit_types.by_race.static_defense[race]])
+        self.append(tmp)
+
+
 f = sys.stdin
 if __name__ == "__main__":
     if len(sys.argv) > 1:
-        if os.path.exists('raw.blob') and os.path.exists('fscaled.blob'):
-            raw = pickle.load(open('raw.blob', 'r'))
-            fscaled = pickle.load(open('fscaled.blob', 'r'))
+        armies_battles_for_regr = []
+        armies_battles_for_clust = {'P': percent_list(), 
+                'T': percent_list(), 
+                'Z': percent_list() }
+        units_ratio_and_scores = []
+        fnamelist = []
+
+        if sys.argv[1] == '-d': # -d for directory
+            import glob
+            fnamelist = glob.iglob(sys.argv[2] + '/*.rgd')
         else:
-            armies_battles_for_regr = []
-            armies_battles_for_clust = {'P': [], 'T': [], 'Z': []}
-            # [[P1units],[P2units],battle_result]
-            fnamelist = []
-            if sys.argv[1] == '-d': # -d for directory
-                import glob
-                fnamelist = glob.iglob(sys.argv[2] + '/*.rgd')
-            else:
-                fnamelist = sys.argv[1:]
-            for fname in fnamelist:
-                f = open(fname)
-                players_races = data_tools.players_races(f)
-                armies_raw = extract_armies_battles(f)
-                if SCORES_REGRESSION:
-                    battles_r = map(functools.partial(format_battle_for_regr,
-                            players_races), armies_raw)
-                    armies_battles_for_regr.extend(battles_r)
-                battles_c = filter(lambda x: len(x[0]) and len(x[1]),
-                        map(functools.partial(format_battle_for_clust_adv,
-                        players_races), armies_raw))
-                print battles_c
-                for b in battles_c:
-                    for k in armies_battles_for_clust.iterkeys():
-                        armies_battles_for_clust[k].extend(b[k])
-                # TODO clustering advanced with only efficient battles/armies
-                # TODO adversary classification (what works against what)
+            fnamelist = sys.argv[1:]
+
+        for fname in fnamelist:
+            f = open(fname)
+            players_races = data_tools.players_races(f)
+
+            ### Parse battles and extract armies (before, after)
+            armies_raw = extract_armies_battles(f)
 
             if SCORES_REGRESSION:
-                armies_battles_regr_raw = np.array(armies_battles_for_regr, np.float32)
-                armies_battles_regr_fscaled = data_tools.features_scaling(armies_battles_regr_raw)
-                from sklearn import linear_model
+                ### Format battles for predict/regression (of the outcome)
+                battles_r = map(functools.partial(format_battle_for_regr,
+                        players_races), armies_raw)
+                armies_battles_for_regr.extend(battles_r)
 
-                import pylab as pl
-                from sklearn.decomposition import PCA, FastICA
-                from sklearn import cross_validation
-                from sklearn import metrics
+            ### Format battles for clustering (with armies order P>T>Z)
+            ### (army_p1, army_p2, final_score_p1, final_score_p2)
+            battles_c = filter(lambda x: len(x[0]) and len(x[1]),
+                    map(functools.partial(format_battle_for_clust_adv,
+                    players_races), armies_raw))
+            #print battles_c
 
-                X = armies_battles_regr_fscaled[:,:-1]
-                Y = armies_battles_regr_fscaled[:,-1]
-                clf = linear_model.LinearRegression()
-                print clf.fit(X, Y)
-                print clf.score(X, Y)
-                scores = cross_validation.cross_val_score(
-                             clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
-                print scores
+            ### save these battles for further use
+            units_ratio_and_scores.extend(battles_c)
 
-                pca = PCA(1)
-                X_r = pca.fit(X).transform(X)
-                print clf.fit(X_r, Y)
-                print clf.score(X_r, Y)
-                scores = cross_validation.cross_val_score(
-                             clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
-                print scores
-                #pl.scatter(X_r, Y, color='black')
-                #pl.plot(X_r, clf.predict(X_r), color='blue', linewidth=3)
-                #pl.xticks(())
-                #pl.yticks(())
-                #pl.show()
+            ### Sort armies by race and put insite battles_for_clust
+            for b in battles_c:
+                for race in armies_battles_for_clust.iterkeys():
+                    first_unit = b[0].iterkeys().next()
+                    if first_unit[0] == race:
+                        armies_battles_for_clust[race].new_battle(b[0])
+                    first_unit = b[1].iterkeys().next()
+                    if first_unit[0] == race:
+                        armies_battles_for_clust[race].new_battle(b[1])
+            #print armies_battles_for_clust
 
-                pca = PCA(2)
-                X_r = pca.fit(X).transform(X)
-                print clf.fit(X_r, Y)
-                print clf.score(X_r, Y)
-                scores = cross_validation.cross_val_score(
-                             clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
-                print scores
-                #pl.scatter(X_r[:,0], X_r[:,1], color='black')
-                #pl.plot(X_r, clf.predict(X_r), color='blue', linewidth=3)
-                #pl.xticks(())
-                #pl.yticks(())
-                #pl.show()
+        from sklearn import decomposition
+        from sklearn import mixture
+        from sklearn import manifold
+        from sklearn import cluster
+        for race, list_of_percentages in armies_battles_for_clust.iteritems():
+            print race
+            compo = np.array(list_of_percentages)
+            if len(compo):
+                pca = decomposition.PCA()
+                pca.fit(compo)
+                print pca
+                print pca.explained_variance_
 
-                clf = linear_model.BayesianRidge()
-                print clf.fit(X, Y)
-                print clf.score(X, Y)
-                scores = cross_validation.cross_val_score(
-                             clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
-                print scores
+                gmm = mixture.GMM(n_components=5, min_covar=0.000001, cvtype='full')
+                gmm.fit(compo)
+                print gmm
+                print unit_types.by_race.military[race],
+                print unit_types.by_race.drop[race]
+                if WITH_STATIC_DEFENSE:
+                    print unit_types.by_race.static_defense[race]
+                print gmm.means
 
-                clf = linear_model.Lasso(alpha = 0.1)
-                print clf.fit(X, Y)
-                print clf.score(X, Y)
-                scores = cross_validation.cross_val_score(
-                             clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
-                print scores
+                dpgmm = mixture.DPGMM(cvtype='full')
+                dpgmm.fit(compo)
+                print dpgmm
+                # print dpgmm.means
+                # print dpgmm.precisions
 
-                from sklearn.linear_model import LassoCV, LassoLarsCV, LassoLarsIC
+                man = manifold.Isomap()
+                man.fit(compo)
+                print man
+                print man.embedding_
 
-                clf = LassoLarsIC(criterion = 'bic')
-                print clf.fit(X, Y)
-                print clf.score(X, Y)
-                scores = cross_validation.cross_val_score(
-                             clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
-                print scores
+                db = cluster.DBSCAN(eps=0.1)
+                dbscan = db.fit(compo)
+                print dbscan
+                print dbscan.components_
 
-                clf = LassoCV(cv=5)
-                print clf.fit(X, Y)
-                print clf.score(X, Y)
-                scores = cross_validation.cross_val_score(
-                             clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
-                print scores
 
-                #import ldavb
-                #clust = LDAVB()
-                #print clust.fit(armies_battles_for_clust['P'])
-                #print clust.fit(armies_battles_for_clust['T'])
-                #print clust.fit(armies_battles_for_clust['Z'])
-                
+            else:
+                print "No battles"
+
+
+        if SCORES_REGRESSION:
+            armies_battles_regr_raw = np.array(armies_battles_for_regr, np.float32)
+            armies_battles_regr_fscaled = data_tools.features_scaling(armies_battles_regr_raw)
+            from sklearn import linear_model
+
+            import pylab as pl
+            from sklearn.decomposition import PCA, FastICA
+            from sklearn import cross_validation
+            from sklearn import metrics
+
+            X = armies_battles_regr_fscaled[:,:-1]
+            Y = armies_battles_regr_fscaled[:,-1]
+            clf = linear_model.LinearRegression()
+            print clf.fit(X, Y)
+            print clf.score(X, Y)
+            scores = cross_validation.cross_val_score(
+                         clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
+            print scores
+
+            pca = PCA(1)
+            X_r = pca.fit(X).transform(X)
+            print clf.fit(X_r, Y)
+            print clf.score(X_r, Y)
+            scores = cross_validation.cross_val_score(
+                         clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
+            print scores
+            #pl.scatter(X_r, Y, color='black')
+            #pl.plot(X_r, clf.predict(X_r), color='blue', linewidth=3)
+            #pl.xticks(())
+            #pl.yticks(())
+            #pl.show()
+
+            pca = PCA(2)
+            X_r = pca.fit(X).transform(X)
+            print clf.fit(X_r, Y)
+            print clf.score(X_r, Y)
+            scores = cross_validation.cross_val_score(
+                         clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
+            print scores
+            #pl.scatter(X_r[:,0], X_r[:,1], color='black')
+            #pl.plot(X_r, clf.predict(X_r), color='blue', linewidth=3)
+            #pl.xticks(())
+            #pl.yticks(())
+            #pl.show()
+
+            clf = linear_model.BayesianRidge()
+            print clf.fit(X, Y)
+            print clf.score(X, Y)
+            scores = cross_validation.cross_val_score(
+                         clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
+            print scores
+
+            clf = linear_model.Lasso(alpha = 0.1)
+            print clf.fit(X, Y)
+            print clf.score(X, Y)
+            scores = cross_validation.cross_val_score(
+                         clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
+            print scores
+
+            from sklearn.linear_model import LassoCV, LassoLarsCV, LassoLarsIC
+
+            clf = LassoLarsIC(criterion = 'bic')
+            print clf.fit(X, Y)
+            print clf.score(X, Y)
+            scores = cross_validation.cross_val_score(
+                         clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
+            print scores
+
+            clf = LassoCV(cv=5)
+            print clf.fit(X, Y)
+            print clf.score(X, Y)
+            scores = cross_validation.cross_val_score(
+                         clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
+            print scores
+
+            #import ldavb
+            #clust = LDAVB()
+            #print clust.fit(armies_battles_for_clust['P'])
+            #print clust.fit(armies_battles_for_clust['T'])
+            #print clust.fit(armies_battles_for_clust['Z'])
+            
