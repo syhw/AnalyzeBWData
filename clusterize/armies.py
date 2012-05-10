@@ -9,6 +9,8 @@ except:
     sys.exit(-1)
 
 SCORES_REGRESSION = False
+MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
+MAX_FORCES_RATIO = 1.5 # max differences between engaged forces
 
 def evaluate_pop(d):
     r = {}
@@ -25,6 +27,16 @@ def score_units(d):
         r[k] = 0
         for unit, numbers in v.iteritems():
             r[k] += unit_types.score_unit(unit)*numbers
+    return r
+
+def to_ratio(d):
+    r = {}
+    for k,v in d.iteritems():
+        s = sum(v.itervalues())
+        tmp = {}
+        for unit, numbers in v.iteritems():
+            tmp[unit] = 1.0*numbers/s
+        r[k] = tmp
     return r
 
 def extract_armies_battles(f):
@@ -84,20 +96,20 @@ def format_battle_for_regr(players_races, armies_battle):
 
 def format_battle_for_clust_adv(players_races, armies_battle):
     """ take an "extract_armies_battles" formatted battle data and make it
-    ready for clustering by considering only battles which were efficient
-    (on a food value) per number of units and returning 2 vectors of units
-    numbers per unit types """
+    ready for clustering (order P > T > Z) by considering only battles 
+    which were relevant (comparable units scores for both parties), 
+    returning 2 vectors of units ratio (of total army) composition
+    per unit types and the final scores of both players"""
     p1, p2 = format_battle_init(players_races, armies_battle[1])
-    print armies_battle
     pop_max = evaluate_pop(armies_battle[1])
-    print pop_max
-    pop_after = evaluate_pop(armies_battle[2])
-    print pop_after
+    #pop_after = evaluate_pop(armies_battle[2])
     score_before = score_units(armies_battle[1])
-    print score_before
-    score_after = score_units(armies_battle[2])
-    print score_after
-    return [],[]
+    if pop_max[p1] > MIN_POP_ENGAGED*2 and pop_max[p2] > MIN_POP_ENGAGED*2 and score_before[p1] < MAX_FORCES_RATIO*score_before[p2] and score_before[p2] < MAX_FORCES_RATIO*score_before[p1]:
+        compo = to_ratio(armies_battle[1])
+        score_after = score_units(armies_battle[2])
+        return compo[p1], compo[p2], score_after[p1], score_after[p2]
+    else:
+        return [], [], [], []
 
 def format_battle_for_clust(players_races, armies_battle):
     """ take an "extract_armies_battles" formatted battle data and make it
@@ -129,11 +141,14 @@ if __name__ == "__main__":
                 f = open(fname)
                 players_races = data_tools.players_races(f)
                 armies_raw = extract_armies_battles(f)
-                battles_r = map(functools.partial(format_battle_for_regr,
-                        players_races), armies_raw)
-                armies_battles_for_regr.extend(battles_r)
-                battles_c = map(functools.partial(format_battle_for_clust_adv,
-                        players_races), armies_raw)
+                if SCORES_REGRESSION:
+                    battles_r = map(functools.partial(format_battle_for_regr,
+                            players_races), armies_raw)
+                    armies_battles_for_regr.extend(battles_r)
+                battles_c = filter(lambda x: len(x[0]) and len(x[1]),
+                        map(functools.partial(format_battle_for_clust_adv,
+                        players_races), armies_raw))
+                print battles_c
                 for b in battles_c:
                     for k in armies_battles_for_clust.iterkeys():
                         armies_battles_for_clust[k].extend(b[k])
