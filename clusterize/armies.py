@@ -8,6 +8,8 @@ except:
     print "you need numpy"
     sys.exit(-1)
 
+SCORES_REGRESSION = False
+
 def evaluate_pop(d):
     r = {}
     for (k,v) in d.iteritems():
@@ -15,6 +17,14 @@ def evaluate_pop(d):
         for (kk, vv) in v.iteritems():
             s += unit_types.unit_double_pop.get(kk,0)*vv
         r[k] = s
+    return r
+
+def score_units(d):
+    r = {}
+    for k,v in d.iteritems():
+        r[k] = 0
+        for unit, numbers in v.iteritems():
+            r[k] += unit_types.score_unit(unit)*numbers
     return r
 
 def extract_armies_battles(f):
@@ -66,7 +76,8 @@ def format_battle_for_regr(players_races, armies_battle):
     tmp = []
     append_units_numbers(tmp, p1, players_races, armies_battle[1])
     append_units_numbers(tmp, p2, players_races, armies_battle[1])
-    scores = evaluate_pop(armies_battle[2])
+    #scores = evaluate_pop(armies_battle[2])
+    scores = score_units(armies_battle[2])
     wrk_scores = armies_battle[3][p1]*2 - armies_battle[3][p1]*2
     tmp.append(scores[p1] - scores[p2] + wrk_scores)
     return tmp
@@ -76,11 +87,16 @@ def format_battle_for_clust_adv(players_races, armies_battle):
     ready for clustering by considering only battles which were efficient
     (on a food value) per number of units and returning 2 vectors of units
     numbers per unit types """
-    # TODO 
     p1, p2 = format_battle_init(players_races, armies_battle[1])
     print armies_battle
     pop_max = evaluate_pop(armies_battle[1])
+    print pop_max
     pop_after = evaluate_pop(armies_battle[2])
+    print pop_after
+    score_before = score_units(armies_battle[1])
+    print score_before
+    score_after = score_units(armies_battle[2])
+    print score_after
     return [],[]
 
 def format_battle_for_clust(players_races, armies_battle):
@@ -116,7 +132,7 @@ if __name__ == "__main__":
                 battles_r = map(functools.partial(format_battle_for_regr,
                         players_races), armies_raw)
                 armies_battles_for_regr.extend(battles_r)
-                battles_c = map(functools.partial(format_battle_for_clust,
+                battles_c = map(functools.partial(format_battle_for_clust_adv,
                         players_races), armies_raw)
                 for b in battles_c:
                     for k in armies_battles_for_clust.iterkeys():
@@ -124,83 +140,84 @@ if __name__ == "__main__":
                 # TODO clustering advanced with only efficient battles/armies
                 # TODO adversary classification (what works against what)
 
-            armies_battles_regr_raw = np.array(armies_battles_for_regr, np.float32)
-            armies_battles_regr_fscaled = data_tools.features_scaling(armies_battles_regr_raw)
-            from sklearn import linear_model
+            if SCORES_REGRESSION:
+                armies_battles_regr_raw = np.array(armies_battles_for_regr, np.float32)
+                armies_battles_regr_fscaled = data_tools.features_scaling(armies_battles_regr_raw)
+                from sklearn import linear_model
 
-            import pylab as pl
-            from sklearn.decomposition import PCA, FastICA
-            from sklearn import cross_validation
-            from sklearn import metrics
+                import pylab as pl
+                from sklearn.decomposition import PCA, FastICA
+                from sklearn import cross_validation
+                from sklearn import metrics
 
-            X = armies_battles_regr_fscaled[:,:-1]
-            Y = armies_battles_regr_fscaled[:,-1]
-            clf = linear_model.LinearRegression()
-            print clf.fit(X, Y)
-            print clf.score(X, Y)
-            scores = cross_validation.cross_val_score(
-                         clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
-            print scores
+                X = armies_battles_regr_fscaled[:,:-1]
+                Y = armies_battles_regr_fscaled[:,-1]
+                clf = linear_model.LinearRegression()
+                print clf.fit(X, Y)
+                print clf.score(X, Y)
+                scores = cross_validation.cross_val_score(
+                             clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
+                print scores
 
-            pca = PCA(1)
-            X_r = pca.fit(X).transform(X)
-            print clf.fit(X_r, Y)
-            print clf.score(X_r, Y)
-            scores = cross_validation.cross_val_score(
-                         clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
-            print scores
-            #pl.scatter(X_r, Y, color='black')
-            #pl.plot(X_r, clf.predict(X_r), color='blue', linewidth=3)
-            #pl.xticks(())
-            #pl.yticks(())
-            #pl.show()
+                pca = PCA(1)
+                X_r = pca.fit(X).transform(X)
+                print clf.fit(X_r, Y)
+                print clf.score(X_r, Y)
+                scores = cross_validation.cross_val_score(
+                             clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
+                print scores
+                #pl.scatter(X_r, Y, color='black')
+                #pl.plot(X_r, clf.predict(X_r), color='blue', linewidth=3)
+                #pl.xticks(())
+                #pl.yticks(())
+                #pl.show()
 
-            pca = PCA(2)
-            X_r = pca.fit(X).transform(X)
-            print clf.fit(X_r, Y)
-            print clf.score(X_r, Y)
-            scores = cross_validation.cross_val_score(
-                         clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
-            print scores
-            #pl.scatter(X_r[:,0], X_r[:,1], color='black')
-            #pl.plot(X_r, clf.predict(X_r), color='blue', linewidth=3)
-            #pl.xticks(())
-            #pl.yticks(())
-            #pl.show()
+                pca = PCA(2)
+                X_r = pca.fit(X).transform(X)
+                print clf.fit(X_r, Y)
+                print clf.score(X_r, Y)
+                scores = cross_validation.cross_val_score(
+                             clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
+                print scores
+                #pl.scatter(X_r[:,0], X_r[:,1], color='black')
+                #pl.plot(X_r, clf.predict(X_r), color='blue', linewidth=3)
+                #pl.xticks(())
+                #pl.yticks(())
+                #pl.show()
 
-            clf = linear_model.BayesianRidge()
-            print clf.fit(X, Y)
-            print clf.score(X, Y)
-            scores = cross_validation.cross_val_score(
-                         clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
-            print scores
+                clf = linear_model.BayesianRidge()
+                print clf.fit(X, Y)
+                print clf.score(X, Y)
+                scores = cross_validation.cross_val_score(
+                             clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
+                print scores
 
-            clf = linear_model.Lasso(alpha = 0.1)
-            print clf.fit(X, Y)
-            print clf.score(X, Y)
-            scores = cross_validation.cross_val_score(
-                         clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
-            print scores
+                clf = linear_model.Lasso(alpha = 0.1)
+                print clf.fit(X, Y)
+                print clf.score(X, Y)
+                scores = cross_validation.cross_val_score(
+                             clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
+                print scores
 
-            from sklearn.linear_model import LassoCV, LassoLarsCV, LassoLarsIC
+                from sklearn.linear_model import LassoCV, LassoLarsCV, LassoLarsIC
 
-            clf = LassoLarsIC(criterion = 'bic')
-            print clf.fit(X, Y)
-            print clf.score(X, Y)
-            scores = cross_validation.cross_val_score(
-                         clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
-            print scores
+                clf = LassoLarsIC(criterion = 'bic')
+                print clf.fit(X, Y)
+                print clf.score(X, Y)
+                scores = cross_validation.cross_val_score(
+                             clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
+                print scores
 
-            clf = LassoCV(cv=5)
-            print clf.fit(X, Y)
-            print clf.score(X, Y)
-            scores = cross_validation.cross_val_score(
-                         clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
-            print scores
+                clf = LassoCV(cv=5)
+                print clf.fit(X, Y)
+                print clf.score(X, Y)
+                scores = cross_validation.cross_val_score(
+                             clf, X, Y, cv=5, score_func=metrics.euclidean_distances)
+                print scores
 
-            #import ldavb
-            #clust = LDAVB()
-            #print clust.fit(armies_battles_for_clust['P'])
-            #print clust.fit(armies_battles_for_clust['T'])
-            #print clust.fit(armies_battles_for_clust['Z'])
-            
+                #import ldavb
+                #clust = LDAVB()
+                #print clust.fit(armies_battles_for_clust['P'])
+                #print clust.fit(armies_battles_for_clust['T'])
+                #print clust.fit(armies_battles_for_clust['Z'])
+                
