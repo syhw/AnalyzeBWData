@@ -12,6 +12,7 @@ SCORES_REGRESSION = False
 MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
 MAX_FORCES_RATIO = 1.5 # max differences between engaged forces
 WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
+CSV_ARMIES_OUTPUT = True
 
 def evaluate_pop(d):
     r = {}
@@ -163,6 +164,8 @@ class percent_list(list):
     def new_battle(self, d):
         race = d.iterkeys().next()[0] # first character of the first unit
         tmp = [d.get(u, 0.0) for u in unit_types.by_race.military[race]]
+        if race == 'T':
+            tmp[unit_types.by_race.military[race].index('Terran Siege Tank Tank Mode')] += tmp.pop(unit_types.by_race.military[race].index('Terran Siege Tank Siege Mode'))
         tmp.append(d.get(unit_types.by_race.drop[race], 0.0))
         if WITH_STATIC_DEFENSE:
             tmp.extend([d.get(u, 0.0) for u in unit_types.by_race.static_defense[race]])
@@ -175,7 +178,7 @@ if __name__ == "__main__":
         armies_battles_for_regr = []
         armies_battles_for_clust = {'P': percent_list(), 
                 'T': percent_list(), 
-                'Z': percent_list() }
+                'Z': percent_list()}
         units_ratio_and_scores = []
         fnamelist = []
 
@@ -219,6 +222,23 @@ if __name__ == "__main__":
                         armies_battles_for_clust[race].new_battle(b[1])
             #print armies_battles_for_clust
 
+        from common.parallel_coordinates import parallel_coordinates
+        for race, l in armies_battles_for_clust.iteritems():
+            if len(l) > 0:
+                csv = open(race+'_armies.csv', 'w')
+                x_l = [u for u in unit_types.by_race.military[race]]
+                if race == 'T':
+                    x_l.pop(unit_types.by_race.military[race].index('Terran Siege Tank Siege Mode'))
+                x_l.append(unit_types.by_race.drop[race])
+                x_l = map(lambda s: ''.join(s.split(' ')[1:]), x_l)
+                #print x_l
+                #parallel_coordinates(l, x_labels=x_l).savefig("parallel_"+race+".png")
+                if CSV_ARMIES_OUTPUT:
+                    csv.write(','.join(x_l) + '\n')
+                    for line in l:
+                        csv.write(','.join(map(lambda e: str(e), line))+'\n')
+
+
         from sklearn import decomposition
         from sklearn import mixture
         from sklearn import manifold
@@ -232,7 +252,7 @@ if __name__ == "__main__":
                 print pca
                 print pca.explained_variance_
 
-                gmm = mixture.GMM(n_components=5, min_covar=0.000001, cvtype='full')
+                gmm = mixture.GMM(n_components=8, min_covar=0.000001, cvtype='full')
                 gmm.fit(compo)
                 print gmm
                 print unit_types.by_race.military[race],
