@@ -49,6 +49,9 @@ WITH_DROP = True # with or without Drop as an attack type
 INFER_DROP = True # with or without inference of drops
 if not WITH_DROP:
     INFER_DROP = False
+    
+# Only base attacks?
+ONLY_BASE_ATTACKS = True
 
 # Air and ground scores discretization
 bins_ad_gd = [0.0, 0.1, 0.5, 1.0] # tells the bins lower limits (quantiles) values
@@ -414,9 +417,16 @@ def extract_tactics_battles(fname, pr, dm, pm=None):
                         else:
                             print "DEBUG", tmp[rt][k][cdr]
 
-            battles.append((tmpres[0], tmp, dpa, pr[attacker], regions))
-            # (list of types, dict of distribs, dict of possible attack types, 
-            #  attacker's race, dict of attacked regions)
+            if ONLY_BASE_ATTACKS:
+                tmpres = data_tools.parse_attacks(line)
+                cdr = pm.get_CDR(tmpres[1][0], tmpres[1][1])
+                reg = pm.get_Reg(tmpres[1][0], tmpres[1][1])
+                if tmp['Reg']['belong'][reg][1] == 1.0 or tmp['CDR']['belong'][cdr][1] == 1.0:
+                    battles.append((tmpres[0], tmp, dpa, pr[attacker], regions))
+            else:
+                battles.append((tmpres[0], tmp, dpa, pr[attacker], regions))
+                # (list of types, dict of distribs, dict of possible attack types, 
+                #  attacker's race, dict of attacked regions)
     return battles
 
 def extract_tests(fname, dm, pm=None):
@@ -497,11 +507,21 @@ def extract_tests(fname, dm, pm=None):
                     assert(test_r in tmp[rt]['air'])
 
             dpa = distrib_possible_attack_types(st, attacker)
-
-            if WITH_DISTANCE_RANKING:
-                tests.append((tmp, dm, fname, dpa))
+            
+            if ONLY_BASE_ATTACKS:
+                tmpres = data_tools.parse_attacks(line)
+                cdr = pm.get_CDR(tmpres[1][0], tmpres[1][1])
+                reg = pm.get_Reg(tmpres[1][0], tmpres[1][1])
+                if tmp['Reg']['belong'][reg][1] == 1.0 or tmp['CDR']['belong'][cdr][1] == 1.0:
+                    if WITH_DISTANCE_RANKING:
+                        tests.append((tmp, dm, fname, dpa))
+                    else:
+                        tests.append((tmp, 0, fname, dpa))
             else:
-                tests.append((tmp, 0, fname, dpa))
+                if WITH_DISTANCE_RANKING:
+                    tests.append((tmp, dm, fname, dpa))
+                else:
+                    tests.append((tmp, 0, fname, dpa))
     return tests
 
 class TacticsMatchUp:
@@ -569,7 +589,7 @@ class TacticsMatchUp:
                 ax.set_xticks(ind+width/2)
                 ax.set_xlabel("tactical value (discretized)")
                 b = bins_tactical
-                ax.set_xticklabels([str(b[i])+"-" for i in range(len(b)-1)])
+                ax.set_xticklabels([str(b[i])+"-" for i in range(len(b))])
                 ax.set_xlabel("(lower) for defender")
                 s = [m.ask_A(rt, TI=i) for i in ind]
                 #print s
@@ -591,7 +611,7 @@ class TacticsMatchUp:
                 ax.set_xticks(ind+width/2)
                 ax.set_xlabel("tactical value (discretized)")
                 b = bins_tactical
-                ax.set_xticklabels([str(b[i])+"-" for i in range(len(b)-1)])
+                ax.set_xticklabels([str(b[i])+"-" for i in range(len(b))])
                 ax.set_xlabel("(lower) for attacker")
                 s = [m.ask_A(rt, ATI=i) for i in ind]
                 #print s
@@ -1058,6 +1078,8 @@ class TacticalModel:
                                     tmp_notA += eco*tactic*belong*atactic\
                                             * self.EI_TI_B_ATI_knowing_A[rt][es,ts,bs,ats,0]*(1.0 - self.A[rt])
                     probabilities_where[r] = tmp_A / (tmp_A+tmp_notA)
+                    if ONLY_BASE_ATTACKS and t[rt]['belong'][r][1] < 1.0:
+                        probabilities_where[r] = 0.0000000000000000001
                     probs_where.append(probabilities_where[r])
                     if probabilities_where[r] > max_where:
                         max_where = probabilities_where[r]
@@ -1204,6 +1226,7 @@ if __name__ == "__main__":
         print "tactical power param:", TACT_PARAM
         print "bins eco score:", bins_eco
         print "with drop?", WITH_DROP
+        print "only base attacks", ONLY_BASE_ATTACKS
         print "bins AD GD scores:", bins_ad_gd
         print "bins detectors:", bins_detect
         print "Possible from TT only", POSSIBLE_ATTACKS_WITH_BUILDINGS_ONLY

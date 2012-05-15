@@ -8,6 +8,12 @@ except:
     print "you need numpy"
     sys.exit(-1)
 
+SCORES_REGRESSION = False
+MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
+MAX_FORCES_RATIO = 1.5 # max differences between engaged forces
+WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
+CSV_ARMIES_OUTPUT = True
+
 def evaluate_pop(d):
     r = {}
     for (k,v) in d.iteritems():
@@ -15,6 +21,24 @@ def evaluate_pop(d):
         for (kk, vv) in v.iteritems():
             s += unit_types.unit_double_pop.get(kk,0)*vv
         r[k] = s
+    return r
+
+def score_units(d):
+    r = {}
+    for k,v in d.iteritems():
+        r[k] = 0
+        for unit, numbers in v.iteritems():
+            r[k] += unit_types.score_unit(unit)*numbers
+    return r
+
+def to_ratio(d):
+    r = {}
+    for k,v in d.iteritems():
+        s = sum(v.itervalues())
+        tmp = {}
+        for unit, numbers in v.iteritems():
+            tmp[unit] = 1.0*numbers/s
+        r[k] = tmp
     return r
 
 def extract_armies_battles(f):
@@ -66,22 +90,28 @@ def format_battle_for_regr(players_races, armies_battle):
     tmp = []
     append_units_numbers(tmp, p1, players_races, armies_battle[1])
     append_units_numbers(tmp, p2, players_races, armies_battle[1])
-    scores = evaluate_pop(armies_battle[2])
+    #scores = evaluate_pop(armies_battle[2])
+    scores = score_units(armies_battle[2])
     wrk_scores = armies_battle[3][p1]*2 - armies_battle[3][p1]*2
     tmp.append(scores[p1] - scores[p2] + wrk_scores)
     return tmp
 
 def format_battle_for_clust_adv(players_races, armies_battle):
     """ take an "extract_armies_battles" formatted battle data and make it
-    ready for clustering by considering only battles which were efficient
-    (on a food value) per number of units and returning 2 vectors of units
-    numbers per unit types """
-    # TODO 
+    ready for clustering (order P > T > Z) by considering only battles 
+    which were relevant (comparable units scores for both parties), 
+    returning 2 vectors of units ratio (of total army) composition
+    per unit types and the final scores of both players"""
     p1, p2 = format_battle_init(players_races, armies_battle[1])
-    print armies_battle
     pop_max = evaluate_pop(armies_battle[1])
-    pop_after = evaluate_pop(armies_battle[2])
-    return [],[]
+    #pop_after = evaluate_pop(armies_battle[2])
+    score_before = score_units(armies_battle[1])
+    if pop_max[p1] > MIN_POP_ENGAGED*2 and pop_max[p2] > MIN_POP_ENGAGED*2 and score_before[p1] < MAX_FORCES_RATIO*score_before[p2] and score_before[p2] < MAX_FORCES_RATIO*score_before[p1]:
+        compo = to_ratio(armies_battle[1])
+        score_after = score_units(armies_battle[2])
+        return compo[p1], compo[p2], score_after[p1], score_after[p2]
+    else:
+        return [], [], [], []
 
 def format_battle_for_clust(players_races, armies_battle):
     """ take an "extract_armies_battles" formatted battle data and make it
@@ -93,37 +123,166 @@ def format_battle_for_clust(players_races, armies_battle):
             r[v].append(copy.deepcopy(armies_battle[1][k]))
     return r
 
+class ArmyCompositions:
+    def __init__(self, race):
+        if race == 'P':
+            self.compositions = {'zealot': {'Protoss Zealot': 0.3},
+                    #'zealots': {'Protoss Zealot': 0.9},
+                    'goon': {'Protoss Dragoon': 0.3},
+                    #'goons': {'Protoss Dragoon': 0.9},
+                    #'T1mix': {'Protoss Zealot': 0.3, 'Protoss Dragoon': 0.3},
+                    'DT': {'Protoss Dark Templar': 0.6},
+                    'HT': {'Protoss High Templar': 0.1}, # 0.05?
+                    'reaver': {'Protoss Reaver': 0.1}, # 0.05?
+                    'drop': {'Protoss Shuttle': 0.2},
+                    'arbiter': {'Protoss Arbiter': 0.05},
+                    'carrier': {'Protoss Carrier': 0.2},
+                    'corsair': {'Protoss Corsair': 0.2},
+                    #'sair_DT': {'Protoss Corsair': 0.2, 'Protoss Dark Templar': 0.2},
+                    'observer': {'Protoss Observer': 0.01},
+                    'darchon': {'Protoss Dark Archon': 0.05},
+                    'archon': {'Protoss Archon': 0.1}, # 0.2?
+                    }
+        elif race == 'T':
+            self.compositions = {'marine': {'Terran Marine': 0.3},
+                    'medic': {'Terran Medic': 0.1},
+                    'firebat': {'Terran Firebat': 0.1},
+                    'tank': {'Terran Siege Tank': 0.2},
+                    'vulture': {'Terran Vulture': 0.25},
+                    'goliath': {'Terran Goliath': 0.2},
+                    'ghost': {'Terran Ghost': 0.1},
+                    'drop': {'Terran Dropship': 0.1},
+                    'wraith': {'Terran Wraith': 0.5},
+                    'vessel': {'Terran Science Vessel': 0.05},
+                    'BC': {'Terran Battlecruiser': 0.2}
+                    }
+        elif race == 'Z':
+            pass # TODO
+
+
+class percent_list(list):
+    def new_battle(self, d):
+        race = d.iterkeys().next()[0] # first character of the first unit
+        tmp = [d.get(u, 0.0) for u in unit_types.by_race.military[race]]
+        if race == 'T':
+            tmp[unit_types.by_race.military[race].index('Terran Siege Tank Tank Mode')] += tmp.pop(unit_types.by_race.military[race].index('Terran Siege Tank Siege Mode'))
+        tmp.append(d.get(unit_types.by_race.drop[race], 0.0))
+        if WITH_STATIC_DEFENSE:
+            tmp.extend([d.get(u, 0.0) for u in unit_types.by_race.static_defense[race]])
+        self.append(tmp)
+
+
 f = sys.stdin
 if __name__ == "__main__":
     if len(sys.argv) > 1:
-        if os.path.exists('raw.blob') and os.path.exists('fscaled.blob'):
-            raw = pickle.load(open('raw.blob', 'r'))
-            fscaled = pickle.load(open('fscaled.blob', 'r'))
+        armies_battles_for_regr = []
+        armies_battles_for_clust = {'P': percent_list(), 
+                'T': percent_list(), 
+                'Z': percent_list()}
+        units_ratio_and_scores = []
+        fnamelist = []
+
+        if sys.argv[1] == '-d': # -d for directory
+            import glob
+            fnamelist = glob.iglob(sys.argv[2] + '/*.rgd')
         else:
-            armies_battles_for_regr = []
-            armies_battles_for_clust = {'P': [], 'T': [], 'Z': []}
-            # [[P1units],[P2units],battle_result]
-            fnamelist = []
-            if sys.argv[1] == '-d': # -d for directory
-                import glob
-                fnamelist = glob.iglob(sys.argv[2] + '/*.rgd')
-            else:
-                fnamelist = sys.argv[1:]
-            for fname in fnamelist:
-                f = open(fname)
-                players_races = data_tools.players_races(f)
-                armies_raw = extract_armies_battles(f)
+            fnamelist = sys.argv[1:]
+
+        for fname in fnamelist:
+            f = open(fname)
+            players_races = data_tools.players_races(f)
+
+            ### Parse battles and extract armies (before, after)
+            armies_raw = extract_armies_battles(f)
+
+            if SCORES_REGRESSION:
+                ### Format battles for predict/regression (of the outcome)
                 battles_r = map(functools.partial(format_battle_for_regr,
                         players_races), armies_raw)
                 armies_battles_for_regr.extend(battles_r)
-                battles_c = map(functools.partial(format_battle_for_clust,
-                        players_races), armies_raw)
-                for b in battles_c:
-                    for k in armies_battles_for_clust.iterkeys():
-                        armies_battles_for_clust[k].extend(b[k])
-                # TODO clustering advanced with only efficient battles/armies
-                # TODO adversary classification (what works against what)
 
+            ### Format battles for clustering (with armies order P>T>Z)
+            ### (army_p1, army_p2, final_score_p1, final_score_p2)
+            battles_c = filter(lambda x: len(x[0]) and len(x[1]),
+                    map(functools.partial(format_battle_for_clust_adv,
+                    players_races), armies_raw))
+            #print battles_c
+
+            ### save these battles for further use
+            units_ratio_and_scores.extend(battles_c)
+
+            ### Sort armies by race and put insite battles_for_clust
+            for b in battles_c:
+                for race in armies_battles_for_clust.iterkeys():
+                    first_unit = b[0].iterkeys().next()
+                    if first_unit[0] == race:
+                        armies_battles_for_clust[race].new_battle(b[0])
+                    first_unit = b[1].iterkeys().next()
+                    if first_unit[0] == race:
+                        armies_battles_for_clust[race].new_battle(b[1])
+            #print armies_battles_for_clust
+
+        from common.parallel_coordinates import parallel_coordinates
+        for race, l in armies_battles_for_clust.iteritems():
+            if len(l) > 0:
+                csv = open(race+'_armies.csv', 'w')
+                x_l = [u for u in unit_types.by_race.military[race]]
+                if race == 'T':
+                    x_l.pop(unit_types.by_race.military[race].index('Terran Siege Tank Siege Mode'))
+                x_l.append(unit_types.by_race.drop[race])
+                x_l = map(lambda s: ''.join(s.split(' ')[1:]), x_l)
+                #print x_l
+                #parallel_coordinates(l, x_labels=x_l).savefig("parallel_"+race+".png")
+                if CSV_ARMIES_OUTPUT:
+                    csv.write(','.join(x_l) + '\n')
+                    for line in l:
+                        csv.write(','.join(map(lambda e: str(e), line))+'\n')
+
+
+        from sklearn import decomposition
+        from sklearn import mixture
+        from sklearn import manifold
+        from sklearn import cluster
+        for race, list_of_percentages in armies_battles_for_clust.iteritems():
+            print race
+            compo = np.array(list_of_percentages)
+            if len(compo):
+                pca = decomposition.PCA()
+                pca.fit(compo)
+                print pca
+                print pca.explained_variance_
+
+                gmm = mixture.GMM(n_components=8, min_covar=0.000001, cvtype='full')
+                gmm.fit(compo)
+                print gmm
+                print unit_types.by_race.military[race],
+                print unit_types.by_race.drop[race]
+                if WITH_STATIC_DEFENSE:
+                    print unit_types.by_race.static_defense[race]
+                print gmm.means
+
+                dpgmm = mixture.DPGMM(cvtype='full')
+                dpgmm.fit(compo)
+                print dpgmm
+                # print dpgmm.means
+                # print dpgmm.precisions
+
+                man = manifold.Isomap()
+                man.fit(compo)
+                print man
+                print man.embedding_
+
+                db = cluster.DBSCAN(eps=0.1)
+                dbscan = db.fit(compo)
+                print dbscan
+                print dbscan.components_
+
+
+            else:
+                print "No battles"
+
+
+        if SCORES_REGRESSION:
             armies_battles_regr_raw = np.array(armies_battles_for_regr, np.float32)
             armies_battles_regr_fscaled = data_tools.features_scaling(armies_battles_regr_raw)
             from sklearn import linear_model
