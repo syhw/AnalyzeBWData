@@ -14,7 +14,7 @@ except:
 DEBUG_LEVEL = 0 # 0: no debug output, 1: some, 2: all
 HISTOGRAMS = True
 testing = True # learn only or test on NUMBER_OF_TEST_GAMES
-NUMBER_OF_TEST_GAMES = 20 # number of games to evaluates the tactical model
+NUMBER_OF_TEST_GAMES = 100 # number of games to evaluates the tactical model
 # if this number is greater than the total number of games,
 # the test set will be the training set (/!\ BAD evaluation)
 
