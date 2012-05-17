@@ -14,6 +14,7 @@ MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
 MAX_FORCES_RATIO = 1.5 # max differences between engaged forces
 WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
 CSV_ARMIES_OUTPUT = True
+DEBUG_OUR_CLUST = False
 
 def evaluate_pop(d):
     r = {}
@@ -290,10 +291,11 @@ if __name__ == "__main__":
                     csv.write(','.join(x_l) + '\n')
                     for line in l:
                         csv.write(','.join(map(lambda e: str(e), line))+'\n')
-                for p_l in l:
-                    print x_l
-                    print p_l
-                    print sorted([(c,logprob) for c,logprob in armies_compositions[race].distrib(p_l).iteritems()], key=lambda x: x[1], reverse=True)[:5]
+                if DEBUG_OUR_CLUST:
+                    for p_l in l:
+                        #print x_l
+                        print p_l
+                        print sorted([(c,logprob) for c,logprob in armies_compositions[race].distrib(p_l).iteritems()], key=lambda x: x[1], reverse=True)[:5]
                     
 
 
