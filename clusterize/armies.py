@@ -14,7 +14,7 @@ MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
 MAX_FORCES_RATIO = 1.5 # max differences between engaged forces
 WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
 CSV_ARMIES_OUTPUT = True
-DEBUG_OUR_CLUST = False
+DEBUG_OUR_CLUST = True
 
 def evaluate_pop(d):
     r = {}
@@ -190,6 +190,7 @@ class ArmyCompositions:
                 self.compositions[unit+'_'+sunit] = {}
                 self.compositions[unit+'_'+sunit].update(value)
                 self.compositions[unit+'_'+sunit].update(svalue)
+        self.compo_count = {}
         width = 0.01
         epsilon = 1.0e-16
         self.P_unit_knowing_cluster = {}
@@ -212,6 +213,26 @@ class ArmyCompositions:
             for i, unit_type in enumerate(ArmyCompositions.by_race[self.race]):
                 d[cluster] += math.log(self.P_unit_knowing_cluster[unit_type][cluster](percents_list[i]))
         return d
+
+    def count(self, d):
+        for c, logprob in d.iteritems():
+            self.compo_count[c] = self.compo_count.get(c, 0) + logprob
+    
+    def prune(self):
+        mini = 0
+        to_rem = []
+        for clust, sumlogprob in self.compo_count.iteritems():
+            if sumlogprob < mini:
+                mini = sumlogprob
+                to_rem = []
+                to_rem.append(clust)
+            elif sumlogprob == mini: # or < mini - SOMETHING
+                to_rem.append(clust)
+        for clust in to_rem:
+            print "removing cluster", clust
+            self.compositions.pop(clust)
+            for unit in self.P_unit_knowing_cluster:
+                self.P_unit_knowing_cluster[unit].pop(clust, 0)
 
 
 class percent_list(list):
@@ -291,12 +312,15 @@ if __name__ == "__main__":
                     csv.write(','.join(x_l) + '\n')
                     for line in l:
                         csv.write(','.join(map(lambda e: str(e), line))+'\n')
-                if DEBUG_OUR_CLUST:
-                    for p_l in l:
+
+                for p_l in l:
+                    dist = armies_compositions[race].distrib(p_l) 
+                    armies_compositions[race].count(dist)
+                    if DEBUG_OUR_CLUST:
                         #print x_l
                         print p_l
-                        print sorted([(c,logprob) for c,logprob in armies_compositions[race].distrib(p_l).iteritems()], key=lambda x: x[1], reverse=True)[:5]
-                    
+                        print sorted([(c,logprob) for c,logprob in dist.iteritems()], key=lambda x: x[1], reverse=True)[:5]
+                armies_compositions[race].prune()
 
 
         from sklearn import decomposition
