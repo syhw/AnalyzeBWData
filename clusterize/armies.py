@@ -189,27 +189,35 @@ class ArmyCompositions:
                 self.compositions[unit+'_'+sunit] = {}
                 self.compositions[unit+'_'+sunit].update(value)
                 self.compositions[unit+'_'+sunit].update(svalue)
+        for unit,value in self.basic_units.iteritems():
+            for sunit,svalue in self.special_units.iteritems():
+                for ssunit,ssvalue in self.special_units.iteritems():
+                    self.compositions[unit+'_'+sunit+'_'+ssunit] = {}
+                    self.compositions[unit+'_'+sunit+'_'+ssunit].update(value)
+                    self.compositions[unit+'_'+sunit+'_'+ssunit].update(svalue)
+                    self.compositions[unit+'_'+sunit+'_'+ssunit].update(ssvalue)
         width = 0.01
         epsilon = 1.0e-16
         self.P_unit_knowing_cluster = {}
+        def f(min_p, max_p, x):
+            if min_p < x < max_p:
+                return width*1.0/(max_p-min_p) - (1.0-max_p+ min_p)*epsilon
+            else:
+                return epsilon
         for name,compo in self.compositions.iteritems():
             for unit,min_percentage in compo.iteritems():
                 max_percentage = 1.0-sum([v for k,v in compo.iteritems() if k != unit])
                 if unit not in self.P_unit_knowing_cluster:
                     self.P_unit_knowing_cluster[unit] = defaultdict(lambda: lambda x: width)
-                def f(x):
-                    if min_percentage < x < max_percentage:
-                        return width*1.0/(max_percentage-min_percentage) - (1.0-max_percentage + min_percentage)*epsilon
-                    else:
-                        return epsilon
-                self.P_unit_knowing_cluster[unit].update({name: f})
+                self.P_unit_knowing_cluster[unit].update({name: functools.partial(f, min_percentage, max_percentage)})
 
     def distrib(self, percents_list):
         d = {}
         for cluster in self.compositions:
-            d[cluster] = 0.0
+            d[cluster] = [0.0, ""]
             for i, unit_type in enumerate(ArmyCompositions.by_race[self.race]):
-                d[cluster] += math.log(self.P_unit_knowing_cluster[unit_type][cluster](percents_list[i]))
+                d[cluster][0] += math.log(self.P_unit_knowing_cluster[unit_type][cluster](percents_list[i]))
+                d[cluster][1] += unit_type+": "+str(percents_list[i])+", "+str(self.P_unit_knowing_cluster[unit_type][cluster](percents_list[i]))+"; "
         return d
 
 
@@ -293,7 +301,7 @@ if __name__ == "__main__":
                 for p_l in l:
                     print x_l
                     print p_l
-                    print sorted([(c,logprob) for c,logprob in armies_compositions[race].distrib(p_l).iteritems()], key=lambda x: x[1], reverse=True)[:5]
+                    print sorted([(c,logprob) for c,logprob in armies_compositions[race].distrib(p_l).iteritems()], key=lambda x: x[1][0], reverse=True)[:5]
                     
 
 
