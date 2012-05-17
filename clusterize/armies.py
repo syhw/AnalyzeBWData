@@ -1,4 +1,5 @@
-import sys, os, pickle, copy, itertools, functools
+import sys, os, pickle, copy, itertools, functools, math
+from collections import defaultdict
 from common import data_tools
 from common import unit_types
 from common import attack_tools
@@ -124,51 +125,100 @@ def format_battle_for_clust(players_races, armies_battle):
     return r
 
 class ArmyCompositions:
+    by_race = {}
+    for race in ['T', 'P', 'Z']:
+        by_race[race] = unit_types.by_race.military[race]+[unit_types.by_race.drop[race]]
+        if WITH_STATIC_DEFENSE:
+            by_race[race].extend(unit_types.by_race.static_defense[race])
+
     def __init__(self, race):
+        self.race = race
         if race == 'P':
-            self.compositions = {'zealot': {'Protoss Zealot': 0.3},
-                    #'zealots': {'Protoss Zealot': 0.9},
+            self.basic_units = {
+                    'zealot': {'Protoss Zealot': 0.4},
                     'goon': {'Protoss Dragoon': 0.3},
-                    #'goons': {'Protoss Dragoon': 0.9},
-                    #'T1mix': {'Protoss Zealot': 0.3, 'Protoss Dragoon': 0.3},
                     'DT': {'Protoss Dark Templar': 0.6},
-                    'HT': {'Protoss High Templar': 0.1}, # 0.05?
-                    'reaver': {'Protoss Reaver': 0.1}, # 0.05?
-                    'drop': {'Protoss Shuttle': 0.2},
-                    'arbiter': {'Protoss Arbiter': 0.05},
+                    'reaver': {'Protoss Reaver': 0.1},
                     'carrier': {'Protoss Carrier': 0.2},
                     'corsair': {'Protoss Corsair': 0.2},
-                    #'sair_DT': {'Protoss Corsair': 0.2, 'Protoss Dark Templar': 0.2},
+                    'scout': {'Protoss Scout': 0.4},
+                    'archon': {'Protoss Archon': 0.2}}
+            self.special_units = {
                     'observer': {'Protoss Observer': 0.01},
+                    'arbiter': {'Protoss Arbiter': 0.05},
+                    'HT': {'Protoss High Templar': 0.05},
                     'darchon': {'Protoss Dark Archon': 0.05},
-                    'archon': {'Protoss Archon': 0.1}, # 0.2?
+                    'shuttle': {'Protoss Shuttle': 0.2} # full with zealots
                     }
         elif race == 'T':
-            self.compositions = {'marine': {'Terran Marine': 0.3},
+            self.basic_units = {
+                    'marine': {'Terran Marine': 0.5},
                     'medic': {'Terran Medic': 0.1},
                     'firebat': {'Terran Firebat': 0.1},
-                    'tank': {'Terran Siege Tank': 0.2},
-                    'vulture': {'Terran Vulture': 0.25},
+                    'vulture': {'Terran Vulture': 0.3},
                     'goliath': {'Terran Goliath': 0.2},
-                    'ghost': {'Terran Ghost': 0.1},
-                    'drop': {'Terran Dropship': 0.1},
                     'wraith': {'Terran Wraith': 0.5},
+                    'battlecruiser': {'Terran Battlecruiser': 0.2},
+                    'valkyrie': {'Terran Valkyrie': 0.2}}
+            self.special_units = {
                     'vessel': {'Terran Science Vessel': 0.05},
-                    'BC': {'Terran Battlecruiser': 0.2}
+                    'tank': {'Terran Siege Tank Tank Mode': 0.2}, # trick
+                    'ghost': {'Terran Ghost': 0.1},
+                    'dropship': {'Terran Dropship': 0.1} # full with marines
                     }
         elif race == 'Z':
-            pass # TODO
+            self.basic_units = {
+                    'zergling': {'Zerg Zergling': 0.7},
+                    'hydra': {'Zerg Hydralisk': 0.4},
+                    'ultra': {'Zerg Ultralisk': 0.15},
+                    'muta': {'Zerg Mutalisk': 0.5},
+                    'guardian': {'Zerg Guardian': 0.2},
+                    'devourer': {'Zerg Devourer': 0.2},
+                    'scourge': {'Zerg Scourge': 0.2}}
+            self.special_units = {                    
+                    'queen': {'Zerg Queen': 0.05},
+                    'lurker': {'Zerg Lurker': 0.2},
+                    'defiler': {'Zerg Defiler': 0.05},
+                    'overlord': {'Zerg Overlord': 0.05} # full with zerglings or detector
+                    }
+        self.compositions = {}
+        self.compositions.update(self.basic_units)
+        self.compositions.update(self.special_units)
+        for unit,value in self.basic_units.iteritems():
+            for sunit,svalue in self.special_units.iteritems():
+                self.compositions[unit+'_'+sunit] = {}
+                self.compositions[unit+'_'+sunit].update(value)
+                self.compositions[unit+'_'+sunit].update(svalue)
+        width = 0.01
+        epsilon = 1.0e-16
+        self.P_unit_knowing_cluster = {}
+        for name,compo in self.compositions.iteritems():
+            for unit,min_percentage in compo.iteritems():
+                max_percentage = 1.0-sum([v for k,v in compo.iteritems() if k != unit])
+                if unit not in self.P_unit_knowing_cluster:
+                    self.P_unit_knowing_cluster[unit] = defaultdict(lambda: lambda x: width)
+                def f(x):
+                    if min_percentage < x < max_percentage:
+                        return width*1.0/(max_percentage-min_percentage) - (1.0-max_percentage + min_percentage)*epsilon
+                    else:
+                        return epsilon
+                self.P_unit_knowing_cluster[unit].update({name: f})
+
+    def distrib(self, percents_list):
+        d = {}
+        for cluster in self.compositions:
+            d[cluster] = 0.0
+            for i, unit_type in enumerate(ArmyCompositions.by_race[self.race]):
+                d[cluster] += math.log(self.P_unit_knowing_cluster[unit_type][cluster](percents_list[i]))
+        return d
 
 
 class percent_list(list):
     def new_battle(self, d):
         race = d.iterkeys().next()[0] # first character of the first unit
-        tmp = [d.get(u, 0.0) for u in unit_types.by_race.military[race]]
+        tmp = [d.get(u, 0.0) for u in ArmyCompositions.by_race[race]]
         if race == 'T':
             tmp[unit_types.by_race.military[race].index('Terran Siege Tank Tank Mode')] += tmp.pop(unit_types.by_race.military[race].index('Terran Siege Tank Siege Mode'))
-        tmp.append(d.get(unit_types.by_race.drop[race], 0.0))
-        if WITH_STATIC_DEFENSE:
-            tmp.extend([d.get(u, 0.0) for u in unit_types.by_race.static_defense[race]])
         self.append(tmp)
 
 
@@ -181,6 +231,9 @@ if __name__ == "__main__":
                 'Z': percent_list()}
         units_ratio_and_scores = []
         fnamelist = []
+        armies_compositions = {'P': ArmyCompositions('P'),
+                'T': ArmyCompositions('T'),
+                'Z': ArmyCompositions('Z')}
 
         if sys.argv[1] == '-d': # -d for directory
             import glob
@@ -211,7 +264,7 @@ if __name__ == "__main__":
             ### save these battles for further use
             units_ratio_and_scores.extend(battles_c)
 
-            ### Sort armies by race and put insite battles_for_clust
+            ### Sort armies by race and put inside battles_for_clust
             for b in battles_c:
                 for race in armies_battles_for_clust.iterkeys():
                     first_unit = b[0].iterkeys().next()
@@ -226,7 +279,7 @@ if __name__ == "__main__":
         for race, l in armies_battles_for_clust.iteritems():
             if len(l) > 0:
                 csv = open(race+'_armies.csv', 'w')
-                x_l = [u for u in unit_types.by_race.military[race]]
+                x_l = [u for u in ArmyCompositions.by_race[race]]
                 if race == 'T':
                     x_l.pop(unit_types.by_race.military[race].index('Terran Siege Tank Siege Mode'))
                 x_l.append(unit_types.by_race.drop[race])
@@ -237,6 +290,11 @@ if __name__ == "__main__":
                     csv.write(','.join(x_l) + '\n')
                     for line in l:
                         csv.write(','.join(map(lambda e: str(e), line))+'\n')
+                for p_l in l:
+                    print x_l
+                    print p_l
+                    print sorted([(c,logprob) for c,logprob in armies_compositions[race].distrib(p_l).iteritems()], key=lambda x: x[1], reverse=True)[:5]
+                    
 
 
         from sklearn import decomposition
