@@ -1,4 +1,15 @@
-import sys, os, pickle, copy, itertools, functools, math
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+# TODO clustering to try:
+#  - roll our own (see ArmyCompositions)
+#  - PCA fragmentation on the first principal component
+#  - PCA fragmentation on first few principal components
+#  - Linear Discriminant Analysis same as above
+#  - GMM EM (which distance function w.r.t. the 0 !!= 0.01 problem)
+#  - GMM DP (which distance function w.r.t. the 0 !!= 0.01 problem)
+#  - Latent Dirichlet Analysis
+
+import sys, os, pickle, copy, itertools, functools, math, random
 from collections import defaultdict
 from common import data_tools
 from common import unit_types
@@ -9,12 +20,21 @@ except:
     print "you need numpy"
     sys.exit(-1)
 
-SCORES_REGRESSION = False
+SCORES_REGRESSION = False # try to do battles scores regressions
 MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
 MAX_FORCES_RATIO = 1.5 # max differences between engaged forces
 WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
-CSV_ARMIES_OUTPUT = True
-DEBUG_OUR_CLUST = True
+CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
+DEBUG_OUR_CLUST = True # debugging output for our clustering
+NUMBER_OF_TEST_GAMES = 10 # number of test games to use
+
+print >> sys.stderr, "SCORES_REGRESSION ",    SCORES_REGRESSION 
+print >> sys.stderr, "MIN_POP_ENGAGED ",      MIN_POP_ENGAGED 
+print >> sys.stderr, "MAX_FORCES_RATIO ",     MAX_FORCES_RATIO 
+print >> sys.stderr, "WITH_STATIC_DEFENSE ",  WITH_STATIC_DEFENSE 
+print >> sys.stderr, "CSV_ARMIES_OUTPUT ",    CSV_ARMIES_OUTPUT 
+print >> sys.stderr, "DEBUG_OUR_CLUST ",      DEBUG_OUR_CLUST 
+print >> sys.stderr, "NUMBER_OF_TEST_GAMES ", NUMBER_OF_TEST_GAMES 
 
 def evaluate_pop(d):
     r = {}
@@ -126,61 +146,63 @@ def format_battle_for_clust(players_races, armies_battle):
     return r
 
 class ArmyCompositions:
-    by_race = {}
+    ut_by_race = {}
     for race in ['T', 'P', 'Z']:
-        by_race[race] = unit_types.by_race.military[race]+[unit_types.by_race.drop[race]]
+        ut_by_race[race] = unit_types.by_race.military[race]+[unit_types.by_race.drop[race]]
         if WITH_STATIC_DEFENSE:
-            by_race[race].extend(unit_types.by_race.static_defense[race])
+            ut_by_race[race].extend(unit_types.by_race.static_defense[race])
+
+    ac_by_race = {}
 
     def __init__(self, race):
         self.race = race
         if race == 'P':
             self.basic_units = {
-                    'zealot': {'Protoss Zealot': 0.4},
-                    'goon': {'Protoss Dragoon': 0.3},
-                    'DT': {'Protoss Dark Templar': 0.6},
-                    'reaver': {'Protoss Reaver': 0.1},
-                    'carrier': {'Protoss Carrier': 0.2},
-                    'corsair': {'Protoss Corsair': 0.2},
-                    'scout': {'Protoss Scout': 0.4},
-                    'archon': {'Protoss Archon': 0.2}}
+                    'P_zealot': {'Protoss Zealot': 0.4},
+                    'P_goon': {'Protoss Dragoon': 0.3},
+                    'P_DT': {'Protoss Dark Templar': 0.6},
+                    'P_reaver': {'Protoss Reaver': 0.1},
+                    'P_carrier': {'Protoss Carrier': 0.2},
+                    'P_corsair': {'Protoss Corsair': 0.2},
+                    'P_scout': {'Protoss Scout': 0.4},
+                    'P_archon': {'Protoss Archon': 0.2}}
             self.special_units = {
-                    'observer': {'Protoss Observer': 0.01},
-                    'arbiter': {'Protoss Arbiter': 0.05},
-                    'HT': {'Protoss High Templar': 0.05},
-                    'darchon': {'Protoss Dark Archon': 0.05},
-                    'shuttle': {'Protoss Shuttle': 0.2} # full with zealots
+                    'P_observer': {'Protoss Observer': 0.01},
+                    'P_arbiter': {'Protoss Arbiter': 0.05},
+                    'P_HT': {'Protoss High Templar': 0.05},
+                    'P_darchon': {'Protoss Dark Archon': 0.05},
+                    'P_shuttle': {'Protoss Shuttle': 0.2} # full with zealots
                     }
         elif race == 'T':
             self.basic_units = {
-                    'marine': {'Terran Marine': 0.5},
-                    'medic': {'Terran Medic': 0.1},
-                    'firebat': {'Terran Firebat': 0.1},
-                    'vulture': {'Terran Vulture': 0.3},
-                    'goliath': {'Terran Goliath': 0.2},
-                    'wraith': {'Terran Wraith': 0.5},
-                    'battlecruiser': {'Terran Battlecruiser': 0.2},
-                    'valkyrie': {'Terran Valkyrie': 0.2}}
+                    'T_marine': {'Terran Marine': 0.5},
+                    'T_medic': {'Terran Medic': 0.1},
+                    'T_firebat': {'Terran Firebat': 0.1},
+                    'T_vulture': {'Terran Vulture': 0.3},
+                    'T_goliath': {'Terran Goliath': 0.2},
+                    'T_wraith': {'Terran Wraith': 0.5},
+                    'T_battlecruiser': {'Terran Battlecruiser': 0.2},
+                    'T_valkyrie': {'Terran Valkyrie': 0.2}}
             self.special_units = {
-                    'vessel': {'Terran Science Vessel': 0.05},
-                    'tank': {'Terran Siege Tank Tank Mode': 0.2}, # trick
-                    'ghost': {'Terran Ghost': 0.1},
-                    'dropship': {'Terran Dropship': 0.1} # full with marines
+                    'T_vessel': {'Terran Science Vessel': 0.05},
+                    'T_tank': {'Terran Siege Tank Tank Mode': 0.2}, # trick
+                    'T_ghost': {'Terran Ghost': 0.1},
+                    'T_dropship': {'Terran Dropship': 0.1} # full with marines
                     }
         elif race == 'Z':
             self.basic_units = {
-                    'zergling': {'Zerg Zergling': 0.7},
-                    'hydra': {'Zerg Hydralisk': 0.4},
-                    'ultra': {'Zerg Ultralisk': 0.15},
-                    'muta': {'Zerg Mutalisk': 0.5},
-                    'guardian': {'Zerg Guardian': 0.2},
-                    'devourer': {'Zerg Devourer': 0.2},
-                    'scourge': {'Zerg Scourge': 0.2}}
+                    'Z_zergling': {'Zerg Zergling': 0.7},
+                    'Z_hydra': {'Zerg Hydralisk': 0.4},
+                    'Z_ultra': {'Zerg Ultralisk': 0.15},
+                    'Z_muta': {'Zerg Mutalisk': 0.5},
+                    'Z_guardian': {'Zerg Guardian': 0.2},
+                    'Z_devourer': {'Zerg Devourer': 0.2},
+                    'Z_scourge': {'Zerg Scourge': 0.2}}
             self.special_units = {                    
-                    'queen': {'Zerg Queen': 0.05},
-                    'lurker': {'Zerg Lurker': 0.2},
-                    'defiler': {'Zerg Defiler': 0.05},
-                    'overlord': {'Zerg Overlord': 0.05} # full with zerglings or detector
+                    'Z_queen': {'Zerg Queen': 0.05},
+                    'Z_lurker': {'Zerg Lurker': 0.2},
+                    'Z_defiler': {'Zerg Defiler': 0.05},
+                    'Z_overlord': {'Zerg Overlord': 0.05} # full with zerglings or detector
                     }
         self.compositions = {}
         self.compositions.update(self.basic_units)
@@ -205,29 +227,50 @@ class ArmyCompositions:
                 if unit not in self.P_unit_knowing_cluster:
                     self.P_unit_knowing_cluster[unit] = defaultdict(lambda: lambda x: width)
                 self.P_unit_knowing_cluster[unit].update({name: functools.partial(f, min_percentage, max_percentage)})
+        ArmyCompositions.ac_by_race[self.race] = self
 
     def distrib(self, percents_list):
+        """ Computes ∏_i P(U_i|C=c) ∀ clusters c in C, returns {c: logprob} """
         d = {}
         for cluster in self.compositions:
             d[cluster] = 0.0
-            for i, unit_type in enumerate(ArmyCompositions.by_race[self.race]):
+            for i, unit_type in enumerate(ArmyCompositions.ut_by_race[self.race]):
                 d[cluster] += math.log(self.P_unit_knowing_cluster[unit_type][cluster](percents_list[i]))
         return d
 
     def count(self, d):
+        """ Adds log probabilities of clusters for a given d """
         for c, logprob in d.iteritems():
             self.compo_count[c] = self.compo_count.get(c, 0) + logprob
     
-    def prune(self):
+    def prune(self, tail_numbers_to_prune=0, numbers_to_keep=0):
+        """ 
+        Removes really unprobable cluster (which were never seen) 
+        Additionally, can remove tail_numbers_to_prune clusters from the
+        tail of the clusters probability distribution (less probable ones),
+        or keep only numbers_to_keep top (most probable) clusters
+        """
         mini = 0
         to_rem = []
+        # insert the clusters to remove in to_rem list
         for clust, sumlogprob in self.compo_count.iteritems():
             if sumlogprob < mini:
                 mini = sumlogprob
                 to_rem = []
                 to_rem.append(clust)
-            elif sumlogprob == mini: # or < mini - SOMETHING
+            elif sumlogprob < mini+1:
                 to_rem.append(clust)
+        if tail_numbers_to_prune > 0 or numbers_to_keep > 0:
+            s = sorted([(c,p) for c,p in self.compo_count.iteritems()], key=lambda x: x[1])
+            if tail_numbers_to_prune > 0:
+                if tail_numbers_to_prune > len(s):
+                    print >> sys.stderr, "ERROR: must prune more clusters than existing"
+                    sys.exit(-1)
+                to_rem.extend(s[:tail_numbers_to_prune])
+            elif numbers_to_keep > 0:
+                s.reverse()
+                to_rem.extend(s[numbers_to_keep:])
+        # do the actual removing
         for clust in to_rem:
             print "removing cluster", clust
             self.compositions.pop(clust)
@@ -235,35 +278,95 @@ class ArmyCompositions:
                 self.P_unit_knowing_cluster[unit].pop(clust, 0)
 
 
+class ArmyCompositionModel:
+    def unit_to_int(unit):
+        return ArmyCompositions.ut_by_race[unit[0]].index(unit)
+
+    def cluster_to_int(cluster):
+        return [k for k in ArmyCompositions.ac_by_race[cluster[0]].compositions].index(cluster)
+
+    def Cfinal_knowing_CtacticsCcounter(self, tt, P_Ctactics, P_Ccounter):
+        d1 = self.C_knowing_TT[:,tt]
+        d2 = self.alpha*P_Ctactics + (1-self.alpha)*P_Ccounter
+        return d1*d2 # TODO verify
+
+    def __init__(self, ac, eac, tt, ett, alpha=0.25):
+        """
+        Takes two ArmyComposition objects (for us and for the enemy) and
+        two vector_X objects (techtree for us and for the enemy)
+        and builds an ArmyCompositionModel
+        """
+        self.alpha = alpha
+        self.race = ac.race
+        self.erace = eac.race
+        self.EU_knowing_EC = np.ndarray(shape=(len(eac.P_unit_knowing_cluster),
+            len(eac.compositions)))
+        self.EC_knowing_ECnext = np.ndarray(shape=(len(eac.compositions),
+            len(eac.compositions)))
+        self.ECnext_knowing_TT = np.ndarray(shape=(len(eac.compositions),
+            len(ett.vector_X)))
+        self.Ccounter_knowing_ECnext = np.ndarray(shape=(len(ac.compositions),
+            len(eac.compositions)))
+        self.C_knowing_TT = np.ndarray(shape=(len(ac.compositions),
+            len(tt.vector_X)))
+        self.U_knowing_Cfinal = np.ndarray(shape=(len(ac.P_unit_knowing_cluster),
+            len(ac.compositions)))
+        for unit in ac.P_unit_knowing_cluster:
+            for cluster, prob in ac.P_unit_knowing_cluster[unit].iteritems():
+                self.U_knowing_Cfinal[ArmyCompositionModel.unit_to_int(unit)][ArmyCompositionModel.cluster_to_int[cluster]] = prob
+        for unit in eac.P_unit_knowing_cluster:
+            for cluster, prob in eac.P_unit_knowing_cluster[unit].iteritems():
+                self.EU_knowing_EC[ArmyCompositionModel.unit_to_int(unit)][ArmyCompositionModel.cluster_to_int[cluster]] = prob
+
+    def train(self, battle):
+        return
+
+
 class percent_list(list):
     def new_battle(self, d):
         race = d.iterkeys().next()[0] # first character of the first unit
-        tmp = [d.get(u, 0.0) for u in ArmyCompositions.by_race[race]]
+        tmp = [d.get(u, 0.0) for u in ArmyCompositions.ut_by_race[race]]
         if race == 'T':
             tmp[unit_types.by_race.military[race].index('Terran Siege Tank Tank Mode')] += tmp.pop(unit_types.by_race.military[race].index('Terran Siege Tank Siege Mode'))
         self.append(tmp)
 
 
 f = sys.stdin
+armies_battles_for_regr = []
+armies_battles_for_clust = {'P': percent_list(), 
+        'T': percent_list(), 
+        'Z': percent_list()}
+battles_for_clustering = []
+fnamelist = []
+ArmyCompositions('P')
+ArmyCompositions('T')
+ArmyCompositions('Z')
+armies_compositions_models = {}
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
-        armies_battles_for_regr = []
-        armies_battles_for_clust = {'P': percent_list(), 
-                'T': percent_list(), 
-                'Z': percent_list()}
-        units_ratio_and_scores = []
-        fnamelist = []
-        armies_compositions = {'P': ArmyCompositions('P'),
-                'T': ArmyCompositions('T'),
-                'Z': ArmyCompositions('Z')}
-
         if sys.argv[1] == '-d': # -d for directory
             import glob
             fnamelist = glob.iglob(sys.argv[2] + '/*.rgd')
         else:
             fnamelist = sys.argv[1:]
+        learngames = [fna for fna in fnamelist]
+        testgames = []
+        if '-t' in sys.argv: # -t for tests
+            if NUMBER_OF_TEST_GAMES > len(fnamelist):
+                print >> sys.stderr, "Number of test games > number of games"
+                sys.exit(-1)
+            i = 0
+            random.seed(0) # no randomness, just sampling
+            r = random.randint(0, len(fnamelist)-1)
+            while i < NUMBER_OF_TEST_GAMES and i < 5000000:
+                if fnamelist[r] not in testgames:
+                    i += 1
+                    testgames.append(fnamelist[r])
+                    learngames.remove(fnamelist[r])
+                r = random.randint(0,len(fnamelist)-1)
 
-        for fname in fnamelist:
+        for fname in learngames:
             f = open(fname)
             players_races = data_tools.players_races(f)
 
@@ -284,7 +387,7 @@ if __name__ == "__main__":
             #print battles_c
 
             ### save these battles for further use
-            units_ratio_and_scores.extend(battles_c)
+            battles_for_clustering.extend(battles_c)
 
             ### Sort armies by race and put inside battles_for_clust
             for b in battles_c:
@@ -298,29 +401,79 @@ if __name__ == "__main__":
             #print armies_battles_for_clust
 
         from common.parallel_coordinates import parallel_coordinates
+        annotated_l = []
         for race, l in armies_battles_for_clust.iteritems():
             if len(l) > 0:
-                csv = open(race+'_armies.csv', 'w')
-                x_l = [u for u in ArmyCompositions.by_race[race]]
+                armies_compositions_models[race] = 0
+                x_l = [u for u in ArmyCompositions.ut_by_race[race]]
                 if race == 'T':
                     x_l.pop(unit_types.by_race.military[race].index('Terran Siege Tank Siege Mode'))
-                x_l.append(unit_types.by_race.drop[race])
+                x_l.append('MostProbableClust')
                 x_l = map(lambda s: ''.join(s.split(' ')[1:]), x_l)
                 #print x_l
                 #parallel_coordinates(l, x_labels=x_l).savefig("parallel_"+race+".png")
+                for p_l in l:
+                    dist = ArmyCompositions.ac_by_race[race].distrib(p_l) 
+                    ArmyCompositions.ac_by_race[race].count(dist)
+                    decreasing_probs_clusters = sorted([(c,logprob) for c,logprob in dist.iteritems()], key=lambda x: x[1], reverse=True)
+                    if DEBUG_OUR_CLUST:
+                        print zip(x_l, map(lambda x: "%.2f" % x, p_l))
+                        print decreasing_probs_clusters[:5]
+                    annotated_l.append(p_l + [decreasing_probs_clusters[0][0]])
+                ArmyCompositions.ac_by_race[race].prune()
+
                 if CSV_ARMIES_OUTPUT:
+                    csv = open(race+'_armies.csv', 'w')
                     csv.write(','.join(x_l) + '\n')
-                    for line in l:
+                    for line in annotated_l:
                         csv.write(','.join(map(lambda e: str(e), line))+'\n')
 
-                for p_l in l:
-                    dist = armies_compositions[race].distrib(p_l) 
-                    armies_compositions[race].count(dist)
-                    if DEBUG_OUR_CLUST:
-                        #print x_l
-                        print p_l
-                        print sorted([(c,logprob) for c,logprob in dist.iteritems()], key=lambda x: x[1], reverse=True)[:5]
-                armies_compositions[race].prune()
+#        def __init__(self, ac, eac, tt, ett, alpha=0.25):
+#        for race in armies_compositions_models:
+#            armies_compositions_models[race] = ArmyCompositionModel(ArmyCompositions.ac_by_race[race], 
+#        for battle in battles_for_clustering:
+#            acm.train(
+                
+
+
+        for fname in testgames:
+            f = open(fname)
+            players_races = data_tools.players_races(f)
+
+            ### Parse battles and extract armies (before, after)
+            armies_raw = extract_armies_battles(f)
+
+            if SCORES_REGRESSION:
+                ### Format battles for predict/regression (of the outcome)
+                battles_r = map(functools.partial(format_battle_for_regr,
+                        players_races), armies_raw)
+                armies_battles_for_regr.extend(battles_r)
+
+            ### Format battles for clustering (with armies order P>T>Z)
+            ### (army_p1, army_p2, final_score_p1, final_score_p2)
+            battles_c = filter(lambda x: len(x[0]) and len(x[1]),
+                    map(functools.partial(format_battle_for_clust_adv,
+                    players_races), armies_raw))
+            #print battles_c
+
+            ### save these battles for further use
+            battles_for_clustering.extend(battles_c)
+
+            ### Sort armies by race and put inside battles_for_clust
+            for b in battles_c:
+                for race in armies_battles_for_clust.iterkeys():
+                    first_unit = b[0].iterkeys().next()
+                    if first_unit[0] == race:
+                        armies_battles_for_clust[race].new_battle(b[0])
+                    first_unit = b[1].iterkeys().next()
+                    if first_unit[0] == race:
+                        armies_battles_for_clust[race].new_battle(b[1])
+            #print armies_battles_for_clust
+    else:
+        print >> sys.stderr, "usage:"
+        print >> sys.stderr, "python armies.py [-d] [directory|file(s)] [-t]"
+        print >> sys.stderr, "-d to load all the *.rgd files from a given directory"
+        print >> sys.stderr, "-t to test / benchmark"
 
 
         from sklearn import decomposition
