@@ -27,9 +27,13 @@ MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
 MAX_FORCES_RATIO = 1.5 # max differences between engaged forces
 WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
-DEBUG_OUR_CLUST = True # debugging output for our clustering
+DEBUG_OUR_CLUST = False # debugging output for our clustering
 NUMBER_OF_TEST_GAMES = 10 # number of test games to use
 PARALLEL_COORDINATES_PLOT = False # should we plot units percentages?
+ADD_SMOOTH_EC_EC = 1.0 # Laplace smoothing
+LEARNED_EC_KNOWING_ETT = False # TODO
+ADD_SMOOTH_EC_TT = 1.0
+ADD_SMOOTH_C_EC = 1.0
 width = 0.01 # width of bins in P(Unit_i | C)
 epsilon = 1.0e-16 # lowest not zero
 
@@ -283,9 +287,10 @@ class ArmyCompositions:
             self.compositions.pop(clust)
             for unit in self.P_unit_knowing_cluster:
                 self.P_unit_knowing_cluster[unit].pop(clust, 0)
-        print "Clusters:"
-        for clust in self.compositions:
-            print clust
+        if DEBUG_OUR_CLUST:
+            print "Clusters:"
+            for clust in self.compositions:
+                print clust
 
 
 class ArmyCompositionModel:
@@ -304,19 +309,28 @@ class ArmyCompositionModel:
     def int_to_cluster(i):
         return [k for k in ArmyCompositions.ac_by_race[cluster[0]].compositions][i]
 
-    def Cfinal_knowing_CtacticsCcounter(self, tt, P_Ctactics, P_Ccounter):
-        # Which values of C are compatible with tt? (set of buildings we have)
+    @staticmethod
+    @memoize
+    def c_possible_under_tt(c, enum, tt):
+        for ut in ArmyCompositions.ac_by_race[c[0]].compositions[c]:
+            for req in unit_types.required_for(ut):
+                if enum.index(req) not in tt:
+                    return False
+        return True
+
+    def Cfinal_knowing_CtacticsCcounter(self, tts, P_Ctactics, P_Ccounter):
+        # Which values of C are compatible with tts? (set of buildings we have)
         def has_all_requirements(list_ut):
             for ut in list_ut:
                 for req in unit_types.required_for(ut):
-                    if req not in tt:
+                    if req not in tts:
                         return False
             return True
         tmp = []
         for i in range(len(self.Ccounter_knowing_ECnext)):
             cluster = ArmyCompositionModel.int_to_cluster(i)
             if has_all_requirements(ArmyCompositions.ac_by_race[self.race].compositions[cluster].keys()):
-                tmp.append(0.5)
+                tmp.append(1.0)
             else:
                 tmp.append(0.0)
         d1 = np.array(tmp)
@@ -324,10 +338,9 @@ class ArmyCompositionModel:
         d2 = self.alpha*P_Ctactics + (1-self.alpha)*P_Ccounter
         return d1*d2 # TODO verify
     
-    def __init__(self, ac, eac, ett, alpha=0.25):
+    def __init__(self, ac, eac, len_e_vector_X=0, alpha=0.25):
         """
         Takes two ArmyComposition objects (for us and for the enemy) and
-        two vector_X objects (techtree for us and for the enemy)
         and builds an ArmyCompositionModel
         """
         self.alpha = alpha
@@ -335,18 +348,32 @@ class ArmyCompositionModel:
         self.erace = eac.race
         self.matchup = self.race + 'v' + self.erace
         range_discretization = range(int(1.0/width))
+        # P(EU | EC) with discretization width (for EU in percent of the army)
         self.EU_knowing_EC = np.ndarray(shape=(len(range_discretization),
             len(eac.P_unit_knowing_cluster),
             len(eac.compositions)), dtype='float')
+        # P(EC^t|EC^{t+1}) learned transitions
         self.EC_knowing_ECnext = np.ndarray(shape=(len(eac.compositions),
             len(eac.compositions)), dtype='float')
-        self.ECnext_knowing_TT = np.ndarray(shape=(len(eac.compositions),
-            len(ett.vector_X)), dtype='float')
+        self.EC_knowing_ECnext.fill(ADD_SMOOTH_EC_EC)
+        # P(EC^{t+1}|ETT) possible EC under ETT _OR_ learned correlations
+        if LEARNED_EC_KNOWING_ETT:
+            self.ECnext_knowing_ETT = np.ndarray(shape=(len(eac.compositions),
+                len_e_vector_X), dtype='float')
+            self.ECnext_knowing_ETT.fill(ADD_SMOOTH_EC_TT)
+        # else -> function 1.0 for ec compatibles with ett, else 0.0
+
+        # P(C_counter|EC^{t+1}) learned correlations
         self.Ccounter_knowing_ECnext = np.ndarray(shape=(len(ac.compositions),
             len(eac.compositions)), dtype='float')
+        self.Ccounter_knowing_ECnext.fill(ADD_SMOOTH_C_EC)
+        
+        # P(U|C_final) with discretization width (for U in percent of the army)
         self.U_knowing_Cfinal = np.ndarray(shape=(len(range_discretization),
             len(ac.P_unit_knowing_cluster),
             len(ac.compositions)), dtype='float')
+
+        # fill P(U|C) and P(EU|EC) for a given discretization of U/EU (width)
         for unit in ac.P_unit_knowing_cluster:
             for cluster, prob in ac.P_unit_knowing_cluster[unit].iteritems():
                 for i in range_discretization:
@@ -359,6 +386,16 @@ class ArmyCompositionModel:
     def train(self, battle):
         get_players_race(battle)
         get_winner(battle)
+
+    def normalize(self):
+        for ecn in range(len(self.EC_knowing_ECnext[0])):
+            self.EC_knowing_ECnext[:,ecn] /= sum(self.EC_knowing_ECnext[:,ecn])
+        if LEARNED_EC_KNOWING_ETT:
+            for ett in range(len(self.ECnext_knowing_ETT[0])):
+                self.ECnext_knowing_ETT[:,ett] /= sum(self.ECnext_knowing_ETT[:,ett])
+        for ecn in range(len(self.Ccounter_knowing_ECnext[0])):
+            self.Ccounter_knowing_ECnext[:,ecn] /= sum(self.Ccounter_knowing_ECnext[:,ecn])
+
 
 
 class percent_list(list):
@@ -411,6 +448,7 @@ ArmyCompositions('P')
 ArmyCompositions('T')
 ArmyCompositions('Z')
 armies_compositions_models = {}
+tech_trees = {}
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
@@ -500,11 +538,15 @@ if __name__ == "__main__":
                         csv.write(','.join(map(lambda e: str(e), line))+'\n')
 
         for mu in armies_compositions_models:
-            armies_compositions_models[mu] = ArmyCompositionModel(ArmyCompositions.ac_by_race[mu[0]], ArmyCompositions.ac_by_race[mu[2]], vector_X(mu[0], mu[2]), vector_X(mu[2], mu[0])) # TODO review
+            tech_trees[mu] = vector_X(mu[2], mu[0])
+            if LEARNED_EC_KNOWING_ETT:
+                armies_compositions_models[mu] = ArmyCompositionModel(ArmyCompositions.ac_by_race[mu[0]], ArmyCompositions.ac_by_race[mu[2]], len(tech_trees[mu].vector_X)) # TODO review
+            else:
+                armies_compositions_models[mu] = ArmyCompositionModel(ArmyCompositions.ac_by_race[mu[0]], ArmyCompositions.ac_by_race[mu[2]])
             for battle in battles_for_clustering:
                 # (army_p1, army_p2, final_score_p1, final_score_p2)
                 armies_compositions_models[mu].train(battle)
-                
+            armies_compositions_models[mu].normalize()
 
 
         for fname in testgames:
