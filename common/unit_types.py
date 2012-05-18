@@ -110,6 +110,47 @@ static_defense_shoot_down_set = static_defense_set and shoot_down_set
 
 static_defense_shoot_up_set = static_defense_set and shoot_up_set
 
+required_for = {
+        'Terran Marine': ['Terran Barracks'], 
+        'Terran Ghost': ['Terran Barracks', 'Terran Academy', 'Terran Science Facility', 'Terran Covert Ops'], 
+        'Terran Vulture': ['Terran Factory'],
+        'Terran Goliath': ['Terran Factory', 'Terran Armory'],
+        'Terran Siege Tank Tank Mode': ['Terran Factory', 'Terran Machine Shop'],
+        'Terran Siege Tank Siege Mode': ['Terran Factory', 'Terran Machine Shop'],
+        'Terran Wraith': ['Terran Starport'],
+        'Terran Science Vessel': ['Terran Starport', 'Terran Control Tower', 'Terran Science Facility'],
+        'Terran Battlecruiser': ['Terran Starport', 'Terran Control Tower', 'Terran Science Facility', 'Terran Physics Lab'],
+        'Terran Firebat': ['Terran Barracks', 'Terran Academy'],
+        'Terran Medic': ['Terran Barracks', 'Terran Academy'],
+        'Terran Valkyrie': ['Terran Starport', 'Terran Control Tower', 'Terran Armory'],
+        'Protoss Observer': ['Protoss Robotics Facility', 'Protoss Observatory'],
+        'Protoss Dragoon': ['Protoss Gateway', 'Protoss Cybernetics Core'],
+        'Protoss Zealot': ['Protoss Gateway'],
+        'Protoss Archon': ['Protoss Gateway', 'Protoss Templar Archives'],
+        'Protoss Reaver': ['Protoss Robotics Facility', 'Protoss Robotics Bay'],
+        'Protoss High Templar': ['Protoss Gateway', 'Protoss Templar Archives'],
+        'Protoss Arbiter': ['Protoss Stargate', 'Protoss Arbiter Tribunal'],
+        'Protoss Carrier': ['Protoss Stargate', 'Protoss Fleet Beacon'],
+        'Protoss Scout': ['Protoss Stargate'],
+        'Protoss Dark Archon': ['Protoss Gateway', 'Protoss Templar Archives'],
+        'Protoss Corsair': ['Protoss Stargate'],
+        'Protoss Dark Templar': ['Protoss Gateway', 'Protoss Templar Archives'],
+        'Zerg Zergling': ['Zergling Spawning Pool'],
+        'Zerg Devourer': ['Zerg Greater Spire'],
+        'Zerg Guardian': ['Zerg Greater Spire'],
+        'Zerg Ultralisk': ['Zerg Ultralisk Cavern'],
+        'Zerg Queen': ['Zerg Queens Nest'],
+        'Zerg Hydralisk': ['Zerg Hydralisk Den'],
+        'Zerg Mutalisk': ['Zerg Spire'],
+        'Zerg Scourge': ['Zerg Spire'],
+        'Zerg Lurker': ['Zerg Hydralisk Den', 'Zerg Lair'],
+        'Zerg Defiler': ['Zerg Defiler Mound'],
+        'Terran Dropship': ['Terran Starport', 'Terran Control Tower'],
+        'Protoss Shuttle': ['Protoss Robotics Facility'],
+        'Zerg Overlord': ['Zerg Lair']
+        }
+
+
 @memoize
 def score_unit(unit):
     return unit_min_price.get(unit, 0) + (4.0/3)*unit_gas_price.get(unit, 0) + 25*unit_double_pop.get(unit, 0)

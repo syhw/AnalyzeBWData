@@ -15,6 +15,7 @@ from common import data_tools
 from common import unit_types
 from common import attack_tools
 from common.vector_X import *
+from common.common_tools import memoize
 try:
     import numpy as np
 except:
@@ -28,6 +29,7 @@ WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
 DEBUG_OUR_CLUST = True # debugging output for our clustering
 NUMBER_OF_TEST_GAMES = 10 # number of test games to use
+PARALLEL_COORDINATES_PLOT = False # should we plot units percentages?
 width = 0.01 # width of bins in P(Unit_i | C)
 epsilon = 1.0e-16 # lowest not zero
 
@@ -38,6 +40,7 @@ print >> sys.stderr, "WITH_STATIC_DEFENSE ",  WITH_STATIC_DEFENSE
 print >> sys.stderr, "CSV_ARMIES_OUTPUT ",    CSV_ARMIES_OUTPUT 
 print >> sys.stderr, "DEBUG_OUR_CLUST ",      DEBUG_OUR_CLUST 
 print >> sys.stderr, "NUMBER_OF_TEST_GAMES ", NUMBER_OF_TEST_GAMES 
+print >> sys.stderr, "PARALLEL_COORDINATES_PLOT ", PARALLEL_COORDINATES_PLOT 
 
 def evaluate_pop(d):
     r = {}
@@ -287,19 +290,41 @@ class ArmyCompositions:
 
 class ArmyCompositionModel:
     @staticmethod
+    @memoize
     def unit_to_int(unit):
         return ArmyCompositions.ut_by_race[unit[0]].index(unit)
 
     @staticmethod
+    @memoize
     def cluster_to_int(cluster):
         return [k for k in ArmyCompositions.ac_by_race[cluster[0]].compositions].index(cluster)
 
+    @staticmethod
+    @memoize
+    def int_to_cluster(i):
+        return [k for k in ArmyCompositions.ac_by_race[cluster[0]].compositions][i]
+
     def Cfinal_knowing_CtacticsCcounter(self, tt, P_Ctactics, P_Ccounter):
-        d1 = self.C_knowing_TT[:,tt]
+        # Which values of C are compatible with tt? (set of buildings we have)
+        def has_all_requirements(list_ut):
+            for ut in list_ut:
+                for req in unit_types.required_for(ut):
+                    if req not in tt:
+                        return False
+            return True
+        tmp = []
+        for i in range(len(self.Ccounter_knowing_ECnext)):
+            cluster = ArmyCompositionModel.int_to_cluster(i)
+            if has_all_requirements(ArmyCompositions.ac_by_race[self.race].compositions[cluster].keys()):
+                tmp.append(0.5)
+            else:
+                tmp.append(0.0)
+        d1 = np.array(tmp)
+        # Fusion values for Ctactics and Ccounter
         d2 = self.alpha*P_Ctactics + (1-self.alpha)*P_Ccounter
         return d1*d2 # TODO verify
-
-    def __init__(self, ac, eac, tt, ett, alpha=0.25):
+    
+    def __init__(self, ac, eac, ett, alpha=0.25):
         """
         Takes two ArmyComposition objects (for us and for the enemy) and
         two vector_X objects (techtree for us and for the enemy)
@@ -319,8 +344,6 @@ class ArmyCompositionModel:
             len(ett.vector_X)), dtype='float')
         self.Ccounter_knowing_ECnext = np.ndarray(shape=(len(ac.compositions),
             len(eac.compositions)), dtype='float')
-        self.C_knowing_TT = np.ndarray(shape=(len(ac.compositions),
-            len(tt.vector_X)), dtype='float')
         self.U_knowing_Cfinal = np.ndarray(shape=(len(range_discretization),
             len(ac.P_unit_knowing_cluster),
             len(ac.compositions)), dtype='float')
@@ -334,7 +357,8 @@ class ArmyCompositionModel:
                     self.EU_knowing_EC[i][ArmyCompositionModel.unit_to_int(unit)][ArmyCompositionModel.cluster_to_int(cluster)] = prob(i)
 
     def train(self, battle):
-        print battle
+        get_players_race(battle)
+        get_winner(battle)
 
 
 class percent_list(list):
@@ -411,6 +435,7 @@ if __name__ == "__main__":
                     learngames.remove(fnamelist[r])
                 r = random.randint(0,len(fnamelist)-1)
 
+        print "learning from", len(learngames), "games"
         for fname in learngames:
             f = open(fname)
             players_races = data_tools.players_races(f)
@@ -439,12 +464,13 @@ if __name__ == "__main__":
                 assert(len(b) == 4) # enforce that b is a battle in the format
                 # (army_p1, army_p2, score_p1, score_p2)
                 for race in armies_battles_for_clust.iterkeys():
-                    for ii,prace in enumerate(get_players_race(b)):
+                    for i,prace in enumerate(get_players_race(b)):
                         if prace == race:
-                            armies_battles_for_clust[race].new_battle(b[ii])
+                            armies_battles_for_clust[race].new_battle(b[i])
             #print armies_battles_for_clust
 
-        from common.parallel_coordinates import parallel_coordinates
+        if PARALLEL_COORDINATES_PLOT:
+            from common.parallel_coordinates import parallel_coordinates
         annotated_l = []
         for race, l in armies_battles_for_clust.iteritems():
             if len(l) > 0:
@@ -454,8 +480,8 @@ if __name__ == "__main__":
                     x_l.pop(unit_types.by_race.military[race].index('Terran Siege Tank Siege Mode'))
                 x_l.append('MostProbableClust')
                 x_l = map(lambda s: ''.join(s.split(' ')[1:]), x_l)
-                #print x_l
-                #parallel_coordinates(l, x_labels=x_l).savefig("parallel_"+race+".png")
+                if PARALLEL_COORDINATES_PLOT:
+                    parallel_coordinates(l, x_labels=x_l).savefig("parallel_"+race+".png")
                 for p_l in l:
                     dist = ArmyCompositions.ac_by_race[race].distrib(p_l) 
                     ArmyCompositions.ac_by_race[race].count(dist)
