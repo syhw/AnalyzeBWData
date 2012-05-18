@@ -14,6 +14,7 @@ from collections import defaultdict
 from common import data_tools
 from common import unit_types
 from common import attack_tools
+from common.vector_X import *
 try:
     import numpy as np
 except:
@@ -27,6 +28,8 @@ WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
 DEBUG_OUR_CLUST = True # debugging output for our clustering
 NUMBER_OF_TEST_GAMES = 10 # number of test games to use
+width = 0.01 # width of bins in P(Unit_i | C)
+epsilon = 1.0e-16 # lowest not zero
 
 print >> sys.stderr, "SCORES_REGRESSION ",    SCORES_REGRESSION 
 print >> sys.stderr, "MIN_POP_ENGAGED ",      MIN_POP_ENGAGED 
@@ -209,12 +212,10 @@ class ArmyCompositions:
         self.compositions.update(self.special_units)
         for unit,value in self.basic_units.iteritems():
             for sunit,svalue in self.special_units.iteritems():
-                self.compositions[unit+'_'+sunit] = {}
-                self.compositions[unit+'_'+sunit].update(value)
-                self.compositions[unit+'_'+sunit].update(svalue)
+                self.compositions[unit+'_'+sunit[2:]] = {}
+                self.compositions[unit+'_'+sunit[2:]].update(value)
+                self.compositions[unit+'_'+sunit[2:]].update(svalue)
         self.compo_count = {}
-        width = 0.01
-        epsilon = 1.0e-16
         self.P_unit_knowing_cluster = {}
         def f(min_p, max_p, x):
             if min_p < x < max_p:
@@ -251,37 +252,45 @@ class ArmyCompositions:
         or keep only numbers_to_keep top (most probable) clusters
         """
         mini = 0
-        to_rem = []
+        to_rem = set()
         # insert the clusters to remove in to_rem list
         for clust, sumlogprob in self.compo_count.iteritems():
             if sumlogprob < mini:
                 mini = sumlogprob
-                to_rem = []
-                to_rem.append(clust)
+                to_rem = set()
+                to_rem.add(clust)
             elif sumlogprob < mini+1:
-                to_rem.append(clust)
+                to_rem.add(clust)
+        # TODO TEST:
         if tail_numbers_to_prune > 0 or numbers_to_keep > 0:
             s = sorted([(c,p) for c,p in self.compo_count.iteritems()], key=lambda x: x[1])
+            s = [x[0] for x in s]
             if tail_numbers_to_prune > 0:
                 if tail_numbers_to_prune > len(s):
                     print >> sys.stderr, "ERROR: must prune more clusters than existing"
                     sys.exit(-1)
-                to_rem.extend(s[:tail_numbers_to_prune])
+                to_rem.update(set(s[:tail_numbers_to_prune]))
             elif numbers_to_keep > 0:
                 s.reverse()
-                to_rem.extend(s[numbers_to_keep:])
+                to_rem.update(set(s[numbers_to_keep:]))
+        # /TODO TEST
         # do the actual removing
         for clust in to_rem:
-            print "removing cluster", clust
+            #print "removing cluster", clust
             self.compositions.pop(clust)
             for unit in self.P_unit_knowing_cluster:
                 self.P_unit_knowing_cluster[unit].pop(clust, 0)
+        print "Clusters:"
+        for clust in self.compositions:
+            print clust
 
 
 class ArmyCompositionModel:
+    @staticmethod
     def unit_to_int(unit):
         return ArmyCompositions.ut_by_race[unit[0]].index(unit)
 
+    @staticmethod
     def cluster_to_int(cluster):
         return [k for k in ArmyCompositions.ac_by_race[cluster[0]].compositions].index(cluster)
 
@@ -299,36 +308,72 @@ class ArmyCompositionModel:
         self.alpha = alpha
         self.race = ac.race
         self.erace = eac.race
-        self.EU_knowing_EC = np.ndarray(shape=(len(eac.P_unit_knowing_cluster),
-            len(eac.compositions)))
+        self.matchup = self.race + 'v' + self.erace
+        range_discretization = range(int(1.0/width))
+        self.EU_knowing_EC = np.ndarray(shape=(len(range_discretization),
+            len(eac.P_unit_knowing_cluster),
+            len(eac.compositions)), dtype='float')
         self.EC_knowing_ECnext = np.ndarray(shape=(len(eac.compositions),
-            len(eac.compositions)))
+            len(eac.compositions)), dtype='float')
         self.ECnext_knowing_TT = np.ndarray(shape=(len(eac.compositions),
-            len(ett.vector_X)))
+            len(ett.vector_X)), dtype='float')
         self.Ccounter_knowing_ECnext = np.ndarray(shape=(len(ac.compositions),
-            len(eac.compositions)))
+            len(eac.compositions)), dtype='float')
         self.C_knowing_TT = np.ndarray(shape=(len(ac.compositions),
-            len(tt.vector_X)))
-        self.U_knowing_Cfinal = np.ndarray(shape=(len(ac.P_unit_knowing_cluster),
-            len(ac.compositions)))
+            len(tt.vector_X)), dtype='float')
+        self.U_knowing_Cfinal = np.ndarray(shape=(len(range_discretization),
+            len(ac.P_unit_knowing_cluster),
+            len(ac.compositions)), dtype='float')
         for unit in ac.P_unit_knowing_cluster:
             for cluster, prob in ac.P_unit_knowing_cluster[unit].iteritems():
-                self.U_knowing_Cfinal[ArmyCompositionModel.unit_to_int(unit)][ArmyCompositionModel.cluster_to_int[cluster]] = prob
+                for i in range_discretization:
+                    self.U_knowing_Cfinal[i][ArmyCompositionModel.unit_to_int(unit)][ArmyCompositionModel.cluster_to_int(cluster)] = prob(i)
         for unit in eac.P_unit_knowing_cluster:
             for cluster, prob in eac.P_unit_knowing_cluster[unit].iteritems():
-                self.EU_knowing_EC[ArmyCompositionModel.unit_to_int(unit)][ArmyCompositionModel.cluster_to_int[cluster]] = prob
+                for i in range_discretization:
+                    self.EU_knowing_EC[i][ArmyCompositionModel.unit_to_int(unit)][ArmyCompositionModel.cluster_to_int(cluster)] = prob(i)
 
     def train(self, battle):
-        return
+        print battle
 
 
 class percent_list(list):
+    """ a type of list which adds percentages of units types in units order """
     def new_battle(self, d):
         race = d.iterkeys().next()[0] # first character of the first unit
         tmp = [d.get(u, 0.0) for u in ArmyCompositions.ut_by_race[race]]
         if race == 'T':
             tmp[unit_types.by_race.military[race].index('Terran Siege Tank Tank Mode')] += tmp.pop(unit_types.by_race.military[race].index('Terran Siege Tank Siege Mode'))
         self.append(tmp)
+
+
+def matchup(race, d):
+    """ determines the match-up beginning by race with the 
+    armies_battles_for_clust dictionary 'd' """
+    mu = race + 'v'
+    for k,v in d.iteritems():
+        if len(v) > 0 and k != race:
+            return mu+k
+    for k,v in d.iteritems():
+        if len(v) > 0:
+            return mu+k
+
+
+def get_players_race(b):
+    # b[0] = army of player 0, b[1] = army of player 1
+    r = []
+    for i in [0,1]:
+        first_unit = b[i].iterkeys().next()
+        r.append(first_unit[0])
+    return r
+
+
+def get_winner(b):
+    # b[-2] = score player 0, b[-1] = score player 1
+    if b[-1] > b[-2]:
+        return 1
+    else:
+        return 0
 
 
 f = sys.stdin
@@ -391,20 +436,19 @@ if __name__ == "__main__":
 
             ### Sort armies by race and put inside battles_for_clust
             for b in battles_c:
+                assert(len(b) == 4) # enforce that b is a battle in the format
+                # (army_p1, army_p2, score_p1, score_p2)
                 for race in armies_battles_for_clust.iterkeys():
-                    first_unit = b[0].iterkeys().next()
-                    if first_unit[0] == race:
-                        armies_battles_for_clust[race].new_battle(b[0])
-                    first_unit = b[1].iterkeys().next()
-                    if first_unit[0] == race:
-                        armies_battles_for_clust[race].new_battle(b[1])
+                    for ii,prace in enumerate(get_players_race(b)):
+                        if prace == race:
+                            armies_battles_for_clust[race].new_battle(b[ii])
             #print armies_battles_for_clust
 
         from common.parallel_coordinates import parallel_coordinates
         annotated_l = []
         for race, l in armies_battles_for_clust.iteritems():
             if len(l) > 0:
-                armies_compositions_models[race] = 0
+                armies_compositions_models[matchup(race, armies_battles_for_clust)] = 0
                 x_l = [u for u in ArmyCompositions.ut_by_race[race]]
                 if race == 'T':
                     x_l.pop(unit_types.by_race.military[race].index('Terran Siege Tank Siege Mode'))
@@ -420,6 +464,7 @@ if __name__ == "__main__":
                         print zip(x_l, map(lambda x: "%.2f" % x, p_l))
                         print decreasing_probs_clusters[:5]
                     annotated_l.append(p_l + [decreasing_probs_clusters[0][0]])
+                    # /!\ annotated without pruning (goes after)
                 ArmyCompositions.ac_by_race[race].prune()
 
                 if CSV_ARMIES_OUTPUT:
@@ -428,11 +473,11 @@ if __name__ == "__main__":
                     for line in annotated_l:
                         csv.write(','.join(map(lambda e: str(e), line))+'\n')
 
-#        def __init__(self, ac, eac, tt, ett, alpha=0.25):
-#        for race in armies_compositions_models:
-#            armies_compositions_models[race] = ArmyCompositionModel(ArmyCompositions.ac_by_race[race], 
-#        for battle in battles_for_clustering:
-#            acm.train(
+        for mu in armies_compositions_models:
+            armies_compositions_models[mu] = ArmyCompositionModel(ArmyCompositions.ac_by_race[mu[0]], ArmyCompositions.ac_by_race[mu[2]], vector_X(mu[0], mu[2]), vector_X(mu[2], mu[0])) # TODO review
+            for battle in battles_for_clustering:
+                # (army_p1, army_p2, final_score_p1, final_score_p2)
+                armies_compositions_models[mu].train(battle)
                 
 
 
