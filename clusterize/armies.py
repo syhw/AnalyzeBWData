@@ -346,7 +346,7 @@ class ArmyCompositionModel:
                         return False
             return True
         tmp = []
-        for i in range(self.Ccounter_knowing_ECnext.shape[0]):
+        for i in range(self.W_knowing_Ccounter_ECnext[1].shape[0]):
             cluster = ArmyCompositionModel.int_to_cluster(i)
             if has_all_requirements(ArmyCompositions.ac_by_race[self.race].compositions[cluster].keys()):
                 tmp.append(1.0)
@@ -382,10 +382,11 @@ class ArmyCompositionModel:
             self.ECnext_knowing_ETT.fill(ADD_SMOOTH_EC_TT)
         # else -> function 1.0 for ec compatibles with ett, else 0.0
 
-        # P(C_counter|EC^{t+1}) learned correlations
-        self.Ccounter_knowing_ECnext = np.ndarray(shape=(len(ac.compositions),
+        # P(Win|C_counter,EC^{t+1}) learned correlations
+        self.W_knowing_Ccounter_ECnext = np.ndarray(shape=(2,
+            len(ac.compositions),
             len(eac.compositions)), dtype='float')
-        self.Ccounter_knowing_ECnext.fill(ADD_SMOOTH_C_EC)
+        self.W_knowing_Ccounter_ECnext.fill(ADD_SMOOTH_C_EC)
         
         # P(U|C_final) with discretization width (for U in percent of the army)
         self.U_knowing_Cfinal = np.ndarray(shape=(len(range_discretization),
@@ -433,18 +434,21 @@ class ArmyCompositionModel:
         #winner_efficiency = l_a/w_a - l_s/w_s # battle efficiency for winner
         winner_efficiency = effiency(w_a, w_s, l_a, l_s)
         races = battle[-1]
+        w_p = percent_list.dict_to_list(battle[w])
+        l_p = percent_list.dict_to_list(battle[l])
         if races[w] == self.race:
-            w_p = percent_list.dict_to_list(battle[w])
-            l_p = percent_list.dict_to_list(battle[l])
-            # for the winner
-            distrib_C_w = ArmyCompositionModel.distrib(self.U_knowing_Cfinal, w_p)
-            # for the loser
-            distrib_C_l = ArmyCompositionModel.distrib(self.EU_knowing_EC, l_p)
-            for c, p in enumerate(distrib_C_w):
-                for ec, ep in enumerate(distrib_C_l):
-                    self.Ccounter_knowing_ECnext[c][ec] += p*ep*winner_efficiency
+            distrib_C_us = ArmyCompositionModel.distrib(self.U_knowing_Cfinal, w_p)
+            distrib_C_them = ArmyCompositionModel.distrib(self.EU_knowing_EC, l_p)
+            for c, p in enumerate(distrib_C_us):
+                for ec, ep in enumerate(distrib_C_them):
+                    self.W_knowing_Ccounter_ECnext[1][c][ec] += p*ep*winner_efficiency
         if races[l] == self.race:
-            pass # TODO (negative experience?)
+            distrib_C_us = ArmyCompositionModel.distrib(self.U_knowing_Cfinal, l_p)
+            distrib_C_them = ArmyCompositionModel.distrib(self.EU_knowing_EC, w_p)
+            for c, p in enumerate(distrib_C_us):
+                for ec, ep in enumerate(distrib_C_them):
+                    self.W_knowing_Ccounter_ECnext[0][c][ec] += p*ep*winner_efficiency
+
         
     def normalize(self):
         for ecn in range(self.EC_knowing_ECnext.shape[1]):
@@ -452,8 +456,9 @@ class ArmyCompositionModel:
         if LEARNED_EC_KNOWING_ETT:
             for ett in range(self.ECnext_knowing_ETT.shape[1]):
                 self.ECnext_knowing_ETT[:,ett] /= sum(self.ECnext_knowing_ETT[:,ett])
-        for ecn in range(self.Ccounter_knowing_ECnext.shape[1]):
-            self.Ccounter_knowing_ECnext[:,ecn] /= sum(self.Ccounter_knowing_ECnext[:,ecn])
+        for cn in range(self.W_knowing_Ccounter_ECnext.shape[1]):
+            for ecn in range(self.W_knowing_Ccounter_ECnext.shape[2]):
+                self.W_knowing_Ccounter_ECnext[:,cn,ecn] /= sum(self.W_knowing_Ccounter_ECnext[:,cn,ecn])
 
     def winner_battle(self, battle):
         """ use P(C|EC) pondered by initial scores to determine the winner """
@@ -465,16 +470,23 @@ class ArmyCompositionModel:
         t = 0.0
         for c, p in enumerate(distrib_C_p1):
             for ec, ep in enumerate(distrib_C_p2):
-                if self.Ccounter_knowing_ECnext[c][ec] < 0.5: # c loses ec
-                    t -= (0.5 + self.Ccounter_knowing_ECnext) * p * ep
+                if self.W_knowing_Ccounter_ECnext[0,c,ec] > 0.5: # c loses ec
+                    t -= self.W_knowing_Ccounter_ECnext[0,c,ec] * p * ep
                 else: # c wins/beats ec
-                    t += self.Ccounter_knowing_ECnext * p * ep
-        
+                    t += self.W_knowing_Ccounter_ECnext[1,c,ec] * p * ep
         # if t > 0.0 it means C beats EC, otherwise C loses against EC
+        factor = abs(t)*2
+        if t < 0.0:
+            if factor*battle[3] > battle[2]:
+                return 1
+            else:
+                return 0
+        else:
+            if factor*battle[2] > battle[3]:
+                return 0
+            else:
+                return 1
         
-
-                
-
 
 
 class percent_list(list):
@@ -649,7 +661,7 @@ if __name__ == "__main__":
                 ### outcome prediction taking clusters into account
                 #good = False
                 mu = battle[-1][0] + 'v' + battle[-1][1]
-                if armies_compositions_models[mu].winner_battle(battle) == get_winner_loser(battle):
+                if armies_compositions_models[mu].winner_battle(battle) == get_winner_loser(battle)[0]:
                     score_cluster_outcome_predictor += 1
 
                 #if not good:
