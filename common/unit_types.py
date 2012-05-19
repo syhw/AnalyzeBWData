@@ -4,7 +4,7 @@ drop = ['Terran Dropship',
         'Protoss Shuttle',
         'Zerg Overlord']
 
-military = [['Terran Marine', 'Terran Ghost', 'Terran Vulture', 'Terran Goliath', 'Terran Siege Tank Tank Mode', 'Terran Wraith', 'Terran Science Vessel', 'Terran Battlecruiser', 'Terran Siege Tank Siege Mode', 'Terran Firebat', 'Terran Medic', 'Terran Valkyrie' ], 
+military = [['Terran Marine', 'Terran Ghost', 'Terran Vulture', 'Terran Vulture Spider Mine', 'Terran Goliath', 'Terran Siege Tank Tank Mode', 'Terran Wraith', 'Terran Science Vessel', 'Terran Battlecruiser', 'Terran Siege Tank Siege Mode', 'Terran Firebat', 'Terran Medic', 'Terran Valkyrie' ], 
         ['Protoss Observer', 'Protoss Dragoon', 'Protoss Zealot', 'Protoss Archon', 'Protoss Reaver', 'Protoss High Templar', 'Protoss Arbiter', 'Protoss Carrier', 'Protoss Scout', 'Protoss Dark Archon', 'Protoss Corsair', 'Protoss Dark Templar'], 
         ['Zerg Zergling', 'Zerg Devourer', 'Zerg Guardian', 'Zerg Ultralisk', 'Zerg Queen', 'Zerg Hydralisk', 'Zerg Mutalisk', 'Zerg Scourge', 'Zerg Lurker', 'Zerg Defiler']]
 
@@ -23,7 +23,7 @@ class by_race:
             'Z' : 'Zerg Overlord'}
 
     military = {
-            'T' : ['Terran Marine', 'Terran Ghost', 'Terran Vulture', 'Terran Goliath', 'Terran Siege Tank Tank Mode', 'Terran Wraith', 'Terran Science Vessel', 'Terran Battlecruiser', 'Terran Siege Tank Siege Mode', 'Terran Firebat', 'Terran Medic', 'Terran Valkyrie' ], 
+            'T' : ['Terran Marine', 'Terran Ghost', 'Terran Vulture', 'Terran Vulture Spider Mine', 'Terran Goliath', 'Terran Siege Tank Tank Mode', 'Terran Wraith', 'Terran Science Vessel', 'Terran Battlecruiser', 'Terran Siege Tank Siege Mode', 'Terran Firebat', 'Terran Medic', 'Terran Valkyrie' ], 
             'P' : ['Protoss Observer', 'Protoss Dragoon', 'Protoss Zealot', 'Protoss Archon', 'Protoss Reaver', 'Protoss High Templar', 'Protoss Arbiter', 'Protoss Carrier', 'Protoss Scout', 'Protoss Dark Archon', 'Protoss Corsair', 'Protoss Dark Templar'], 
             'Z' : ['Zerg Zergling', 'Zerg Devourer', 'Zerg Guardian', 'Zerg Ultralisk', 'Zerg Queen', 'Zerg Hydralisk', 'Zerg Mutalisk', 'Zerg Scourge', 'Zerg Lurker', 'Zerg Defiler']}
 
@@ -114,6 +114,7 @@ required_for = {
         'Terran Marine': ['Terran Barracks'], 
         'Terran Ghost': ['Terran Barracks', 'Terran Academy', 'Terran Science Facility', 'Terran Covert Ops'], 
         'Terran Vulture': ['Terran Factory'],
+        'Terran Vulture Spider Mine': ['Terran Factory', 'Terran Machine Shop'],
         'Terran Goliath': ['Terran Factory', 'Terran Armory'],
         'Terran Siege Tank Tank Mode': ['Terran Factory', 'Terran Machine Shop'],
         'Terran Siege Tank Siege Mode': ['Terran Factory', 'Terran Machine Shop'],

@@ -1,5 +1,6 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
+
 # Clustering to try:
 #  - roll our own (see ArmyCompositions)
 #  - PCA fragmentation on the first principal component
@@ -25,23 +26,25 @@ except:
 
 SCORES_REGRESSION = False # try to do battles scores regressions
 MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
-MAX_FORCES_RATIO = 1.5 # max differences between engaged forces
-WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
+MAX_FORCES_RATIO = 1.3 # max differences between engaged forces
+WITH_STATIC_DEFENSE = False # tells if we include static defense in armies TODO
+WITH_WORKERS = False # tells if we include workers in armies TODO
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
 DEBUG_OUR_CLUST = False # debugging output for our clustering
-NUMBER_OF_TEST_GAMES = 30 # number of test games to use
+NUMBER_OF_TEST_GAMES = 130 # number of test games to use
 PARALLEL_COORDINATES_PLOT = False # should we plot units percentages?
 ADD_SMOOTH_EC_EC = 0.01 # smoothing
 LEARNED_EC_KNOWING_ETT = False # TODO
 ADD_SMOOTH_EC_TT = 0.01
 ADD_SMOOTH_C_EC = 0.01
 disc_width = 0.01 # width of bins in P(Unit_i | C)
-epsilon = 1.0e-16 # lowest not zero
+epsilon = 1.0e-10 # lowest not zero
 
 print >> sys.stderr, "SCORES_REGRESSION ",    SCORES_REGRESSION 
 print >> sys.stderr, "MIN_POP_ENGAGED ",      MIN_POP_ENGAGED 
 print >> sys.stderr, "MAX_FORCES_RATIO ",     MAX_FORCES_RATIO 
 print >> sys.stderr, "WITH_STATIC_DEFENSE ",  WITH_STATIC_DEFENSE 
+print >> sys.stderr, "WITH_WORKERS ",         WITH_WORKERS 
 print >> sys.stderr, "CSV_ARMIES_OUTPUT ",    CSV_ARMIES_OUTPUT 
 print >> sys.stderr, "DEBUG_OUR_CLUST ",      DEBUG_OUR_CLUST 
 print >> sys.stderr, "NUMBER_OF_TEST_GAMES ", NUMBER_OF_TEST_GAMES 
@@ -67,10 +70,18 @@ def score_units(d):
 def to_ratio(d):
     r = {}
     for k,v in d.iteritems():
-        s = sum(v.itervalues())
         tmp = {}
         for unit, numbers in v.iteritems():
-            tmp[unit] = 1.0*numbers/(s+disc_width) # +width to avoid 100% (99%)
+            if not WITH_STATIC_DEFENSE:
+                if unit in unit_types.static_defense_set:
+                    continue
+            if not WITH_WORKERS:
+                if unit in unit_types.workers:
+                    continue
+            tmp[unit] = 1.0*numbers
+        s = sum(tmp.itervalues())
+        for unit in tmp:
+            tmp[unit] /= (s+disc_width) # +width to avoid 100% (99%)
         r[k] = tmp
     return r
 
@@ -203,7 +214,7 @@ class ArmyCompositions:
                     'T_marine': {'Terran Marine': 0.5},
                     'T_medic': {'Terran Medic': 0.1},
                     'T_firebat': {'Terran Firebat': 0.1},
-                    'T_vulture': {'Terran Vulture': 0.3},
+                    'T_vulture': {'Terran Vulture': 0.3, 'Terran Vulture Spider Mine': 0.05},
                     'T_goliath': {'Terran Goliath': 0.2},
                     'T_wraith': {'Terran Wraith': 0.5},
                     'T_battlecruiser': {'Terran Battlecruiser': 0.2},
@@ -362,6 +373,7 @@ class ArmyCompositionModel:
         Takes two ArmyComposition objects (for us and for the enemy) and
         and builds an ArmyCompositionModel
         """
+        self.n_train = 0
         self.alpha = alpha
         self.race = ac.race
         self.erace = eac.race
@@ -405,7 +417,7 @@ class ArmyCompositionModel:
 
 
     @staticmethod
-    def distrib(prob_table, list_percents):
+    def distrib_C(prob_table, list_percents):
         """ with a P(U|C) prob_table and a list of percentage of each
         unit in the army, returns the distribution on C (clusters) """
         tmp = []
@@ -419,6 +431,7 @@ class ArmyCompositionModel:
 
 
     def train(self, battle):
+        self.n_train += 1
         def effiency(w_before, w_after, l_before, l_after):
             """ compute the efficiency of the battle from the winner's POV """
             winner_loss = w_before-w_after
@@ -434,23 +447,28 @@ class ArmyCompositionModel:
         #winner_efficiency = l_a/w_a - l_s/w_s # battle efficiency for winner
         winner_efficiency = effiency(w_a, w_s, l_a, l_s)
         races = battle[-1]
-        w_p = percent_list.dict_to_list(battle[w])
-        l_p = percent_list.dict_to_list(battle[l])
+        w_p = percent_list.dict_to_list(battle[w], battle[-1][w])
+        l_p = percent_list.dict_to_list(battle[l], battle[-1][l])
         if races[w] == self.race:
-            distrib_C_us = ArmyCompositionModel.distrib(self.U_knowing_Cfinal, w_p)
-            distrib_C_them = ArmyCompositionModel.distrib(self.EU_knowing_EC, l_p)
+            distrib_C_us = ArmyCompositionModel.distrib_C(self.U_knowing_Cfinal, w_p)
+            print distrib_C_us
+            distrib_C_them = ArmyCompositionModel.distrib_C(self.EU_knowing_EC, l_p)
+            print distrib_C_them
             for c, p in enumerate(distrib_C_us):
                 for ec, ep in enumerate(distrib_C_them):
+                    #print "1 adding", p*ep*winner_efficiency, "to", c, ec
                     self.W_knowing_Ccounter_ECnext[1][c][ec] += p*ep*winner_efficiency
         if races[l] == self.race:
-            distrib_C_us = ArmyCompositionModel.distrib(self.U_knowing_Cfinal, l_p)
-            distrib_C_them = ArmyCompositionModel.distrib(self.EU_knowing_EC, w_p)
+            distrib_C_us = ArmyCompositionModel.distrib_C(self.U_knowing_Cfinal, l_p)
+            distrib_C_them = ArmyCompositionModel.distrib_C(self.EU_knowing_EC, w_p)
             for c, p in enumerate(distrib_C_us):
                 for ec, ep in enumerate(distrib_C_them):
+                    #print "0 adding", p*ep*winner_efficiency, "to", c, ec
                     self.W_knowing_Ccounter_ECnext[0][c][ec] += p*ep*winner_efficiency
 
         
     def normalize(self):
+        print self.W_knowing_Ccounter_ECnext
         for ecn in range(self.EC_knowing_ECnext.shape[1]):
             self.EC_knowing_ECnext[:,ecn] /= sum(self.EC_knowing_ECnext[:,ecn])
         if LEARNED_EC_KNOWING_ETT:
@@ -459,48 +477,50 @@ class ArmyCompositionModel:
         for cn in range(self.W_knowing_Ccounter_ECnext.shape[1]):
             for ecn in range(self.W_knowing_Ccounter_ECnext.shape[2]):
                 self.W_knowing_Ccounter_ECnext[:,cn,ecn] /= sum(self.W_knowing_Ccounter_ECnext[:,cn,ecn])
+        print self.W_knowing_Ccounter_ECnext
 
     def winner_battle(self, battle):
         """ use P(C|EC) pondered by initial scores to determine the winner """
-        p1_p = percent_list.dict_to_list(battle[0])
-        distrib_C_p1 = ArmyCompositionModel.distrib(self.U_knowing_Cfinal, p1_p)
-        p2_p = percent_list.dict_to_list(battle[1])
-        distrib_C_p2 = ArmyCompositionModel.distrib(self.EU_knowing_EC, p2_p)
+        p1_p = percent_list.dict_to_list(battle[0], battle[-1][0])
+        distrib_C_p1 = ArmyCompositionModel.distrib_C(self.U_knowing_Cfinal, p1_p)
+        p2_p = percent_list.dict_to_list(battle[1], battle[-1][1])
+        distrib_C_p2 = ArmyCompositionModel.distrib_C(self.EU_knowing_EC, p2_p)
 
         t = 0.0
         for c, p in enumerate(distrib_C_p1):
             for ec, ep in enumerate(distrib_C_p2):
-                if self.W_knowing_Ccounter_ECnext[0,c,ec] > 0.5: # c loses ec
-                    t -= self.W_knowing_Ccounter_ECnext[0,c,ec] * p * ep
-                else: # c wins/beats ec
-                    t += self.W_knowing_Ccounter_ECnext[1,c,ec] * p * ep
-        # if t > 0.0 it means C beats EC, otherwise C loses against EC
-        factor = abs(t)*2
-        if t < 0.0:
-            if factor*battle[3] > battle[2]:
-                return 1
-            else:
-                return 0
+                t += self.W_knowing_Ccounter_ECnext[1,c,ec] * p * ep
+        # if t > 0.5 it means C beats EC, otherwise C loses against EC
+        factor = t*2
+#        print battle[0]
+#        print ArmyCompositions.ut_by_race[battle[-1][0]]
+#        print p1_p
+#        print distrib_C_p1
+#        print battle[1]
+#        print ArmyCompositions.ut_by_race[battle[-1][1]]
+#        print p2_p
+#        print distrib_C_p2
+        print factor
+        if battle[2]*factor > battle[3]:
+            return 1
         else:
-            if factor*battle[2] > battle[3]:
-                return 0
-            else:
-                return 1
+            return 0
         
 
 
 class percent_list(list):
     """ a type of list which adds percentages of units types in units order """
     @staticmethod
-    def dict_to_list(d):
-        race = d.iterkeys().next()[0] # first character of the first unit
+    def dict_to_list(d, race=None):
+        if race == None:
+            race = d.iterkeys().next()[0] # first character of the first unit
         tmp = [d.get(u, 0.0) for u in ArmyCompositions.ut_by_race[race]]
         if race == 'T':
-            tmp[unit_types.by_race.military[race].index('Terran Siege Tank Tank Mode')] += tmp.pop(unit_types.by_race.military[race].index('Terran Siege Tank Siege Mode'))
+            tmp[ArmyCompositions.ut_by_race[race].index('Terran Siege Tank Tank Mode')] += tmp.pop(ArmyCompositions.ut_by_race[race].index('Terran Siege Tank Siege Mode'))
         return tmp
 
-    def new_battle(self, d):
-        self.append(percent_list.dict_to_list(d))
+    def new_battle(self, d, race=None):
+        self.append(percent_list.dict_to_list(d, race))
 
 
 def matchup(race, d):
@@ -637,6 +657,7 @@ if __name__ == "__main__":
                 # score_after_p1, score_after_p2, players_races)
                 armies_compositions_models[mu].train(battle)
             armies_compositions_models[mu].normalize()
+            print mu, "trained on", armies_compositions_models[mu].n_train, "battles"
 
 
         if '-t' in sys.argv:
@@ -667,8 +688,8 @@ if __name__ == "__main__":
                 #if not good:
                 #    mu2 = battle[-1][1] + 'v' + battle[-1][0]
 
-            print "simple outcome predictor performance:", score_simple_outcome_predictor*1.0/len(test_battles)
-            print "cluster outcome predictor performance:", score_cluster_outcome_predictor*1.0/len(test_battles)
+            print "simple outcome predictor performance:", score_simple_outcome_predictor*1.0/len(test_battles), ':', score_simple_outcome_predictor, '/', len(test_battles)
+            print "cluster outcome predictor performance:", score_cluster_outcome_predictor*1.0/len(test_battles), ':', score_cluster_outcome_predictor, '/', len(test_battles)
 
     else:
         print >> sys.stderr, "usage:"
