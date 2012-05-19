@@ -1,24 +1,26 @@
 class vector_X:
-    """ an object created with a matchup and showing:
-        - self.{terran|protoss|zerg}_buildings_enum which maps integers to
+    """ 
+    an object created with a matchup and showing:
+        - self.enums which maps integers to
         building names, one for each of the three races
         - self.vector_X which maps X (BuildTree) integer values to sets of
-        buildings (in buildings integers) that corresponds
+        buildings (in buildings integers) for race 'them'
+        - self.enum which maps buildings names to their int value in sets
+        for the race of 'them' (vector_X at hand)
     """
     def __init__(self, us, them):
         matchup = them + 'v' + us
         f = open('strategy/tables/vectorx/ENUM.txt')
-        self.terran_buildings_enum = []
-        self.protoss_buildings_enum = []
-        self.zerg_buildings_enum = []
+        self.enums = {'P': [], 'T': [], 'Z': []}
         for line in f:
             if 'Terran_' in line:
-                self.terran_buildings_enum.append(line.rstrip('\n'))
+                self.enums['T'].append(line.rstrip('\n'))
             elif 'Protoss_' in line:
-                self.protoss_buildings_enum.append(line.rstrip('\n'))
+                self.enums['P'].append(line.rstrip('\n'))
             elif 'Zerg_' in line:
-                self.zerg_buildings_enum.append(line.rstrip('\n'))
+                self.enums['Z'].append(line.rstrip('\n'))
         f.close()
+        self.enum = self.enums[them]
         f = open('strategy/tables/vectorx/' + matchup + '.txt')
         self.vector_X = []
         for line in f:
@@ -27,7 +29,8 @@ class vector_X:
         
 if __name__ == "__main__":
     v = vector_X('P', 'T')
-    print v.protoss_buildings_enum
-    print v.terran_buildings_enum
+    print v.enums['P']
+    print v.enums['T']
     print v.vector_X
+    print len(v.vector_X)
 
