@@ -687,10 +687,10 @@ class ArmyCompositionModel:
         w_p = percent_list.dict_to_list(battle[w], battle[-1][w])
         l_p = percent_list.dict_to_list(battle[l], battle[-1][l])
 
-        print "================================"
-        print battle
-        win_total = 0.0
-        lose_total = 0.0
+#        print "================================"
+#        print battle
+#        win_total = 0.0
+#        lose_total = 0.0
 
         winner_efficiency = efficiency(w_a, w_s, l_a, l_s)
         if races[w] == self.race:
@@ -702,8 +702,8 @@ class ArmyCompositionModel:
                         self.W_knowing_Ccounter_ECnext[1][c][ec] += p*ep
                     else:
                         self.W_knowing_Ccounter_ECnext[1][c][ec] += p*ep*winner_efficiency
-                    win_total += p*ep*winner_efficiency
-            print "winner, added:", win_total
+#                    win_total += p*ep*winner_efficiency
+#            print "winner, added:", win_total
 
         if races[l] == self.race:
             distrib_C_us = self.prod_Ui_Cfinal(l_p)
@@ -714,9 +714,9 @@ class ArmyCompositionModel:
                         self.W_knowing_Ccounter_ECnext[0][c][ec] += p*ep
                     else:
                         self.W_knowing_Ccounter_ECnext[0][c][ec] += p*ep*winner_efficiency
-                    lose_total += p*ep*winner_efficiency
-            print "loser, added:", lose_total
-        print "================================"
+#                    lose_total += p*ep*winner_efficiency
+#            print "loser, added:", lose_total
+#        print "================================"
 
         
     def normalize(self):
@@ -794,13 +794,12 @@ class ArmyCompositionModel:
 
         # if t > 0.5 it means C beats EC, otherwise C loses against EC
         factor = t*2
-        print ">>> winner battle:"
-        print battle[0]
-        print filter(lambda x: x[1] > 0.001, zip(ArmyCompositions.ac_by_race[battle[-1][0]].compositions, distrib_C_p1))
-        print battle[1]
-        print filter(lambda x: x[1] > 0.001, zip(ArmyCompositions.ac_by_race[battle[-1][1]].compositions, distrib_C_p2))
-        print "factor:", factor
-        #if factor >= 1.0:
+#        print ">>> winner battle:"
+#        print battle[0]
+#        print filter(lambda x: x[1] > 0.001, zip(ArmyCompositions.ac_by_race[battle[-1][0]].compositions, distrib_C_p1))
+#        print battle[1]
+#        print filter(lambda x: x[1] > 0.001, zip(ArmyCompositions.ac_by_race[battle[-1][1]].compositions, distrib_C_p2))
+#        print "factor:", factor
         if battle[2]*factor > battle[3]:
             return 0
         else:
