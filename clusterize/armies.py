@@ -26,19 +26,20 @@ except:
 
 SCORES_REGRESSION = False # try to do battles scores regressions
 MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
-MAX_FORCES_RATIO = 1.3 # max differences between engaged forces
+MAX_FORCES_RATIO = 1.1 # max differences between engaged forces
 WITH_STATIC_DEFENSE = False # tells if we include static defense in armies TODO
 WITH_WORKERS = False # tells if we include workers in armies TODO
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
-DEBUG_OUR_CLUST = False # debugging output for our clustering
-NUMBER_OF_TEST_GAMES = 30 # number of test games to use
+DEBUG_OUR_CLUST = True # debugging output for our clustering
+SHOW_NORMALIZE_OUTPUT = False # show normalized tables which are not uniform
+NUMBER_OF_TEST_GAMES = 50 # number of test games to use
 PARALLEL_COORDINATES_PLOT = False # should we plot units percentages?
 ADD_SMOOTH_EC_EC = 0.01 # smoothing
 LEARNED_EC_KNOWING_ETT = False # TODO
 ADD_SMOOTH_EC_TT = 0.01
 ADD_SMOOTH_C_EC = 0.01
 disc_width = 0.01 # width of bins in P(Unit_i | C)
-epsilon = 1.0e-10 # lowest not zero
+epsilon = 1.0e-6 # lowest not zero
 
 print >> sys.stderr, "SCORES_REGRESSION ",    SCORES_REGRESSION 
 print >> sys.stderr, "MIN_POP_ENGAGED ",      MIN_POP_ENGAGED 
@@ -47,6 +48,7 @@ print >> sys.stderr, "WITH_STATIC_DEFENSE ",  WITH_STATIC_DEFENSE
 print >> sys.stderr, "WITH_WORKERS ",         WITH_WORKERS 
 print >> sys.stderr, "CSV_ARMIES_OUTPUT ",    CSV_ARMIES_OUTPUT 
 print >> sys.stderr, "DEBUG_OUR_CLUST ",      DEBUG_OUR_CLUST 
+print >> sys.stderr, "SHOW_NORMALIZE_OUTPUT ",SHOW_NORMALIZE_OUTPUT 
 print >> sys.stderr, "NUMBER_OF_TEST_GAMES ", NUMBER_OF_TEST_GAMES 
 print >> sys.stderr, "PARALLEL_COORDINATES_PLOT ", PARALLEL_COORDINATES_PLOT 
 
@@ -262,22 +264,52 @@ class ArmyCompositions:
                     self.P_unit_knowing_cluster[unit] = defaultdict(lambda: lambda x: disc_width)
                 
                 self.P_unit_knowing_cluster[unit].update({name: functools.partial(f, min_percentage, max_percentage)})
+        self.n_units = len(self.P_unit_knowing_cluster)
+        self.register()
+
+
+    def register(self):
         ArmyCompositions.ac_by_race[self.race] = self
 
-    def log_pseudo_distrib(self, percents_list):
+
+    def d_prod_Ui_C(self, percents_list):
         """ Computes ∏_i P(U_i|C=c) ∀ clusters c in C, returns {c: logprob} """
         d = {}
         for cluster in self.compositions:
-            d[cluster] = 0.0
+            d[cluster] = 1.0
             for i, unit_type in enumerate(ArmyCompositions.ut_by[self.race]):
-                d[cluster] += math.log(self.P_unit_knowing_cluster[unit_type][cluster](percents_list[i]))
+                d[cluster] *= self.P_unit_knowing_cluster[unit_type][cluster](percents_list[i])
         return d
 
-    def count(self, d):
-        """ Adds log probabilities of clusters for a given d """
-        for c, logprob in d.iteritems():
+
+    def prod_Ui_C(self, percents_list):
+        """ Computes ∏_i P(U_i|C=c) ∀ clusters c in C, returns {c: logprob} """
+        d = {}
+        for cluster in self.compositions:
+            d[cluster] = 1.0
+            for i, unit_type in enumerate(ArmyCompositions.ut_by[self.race]):
+                d[cluster] *= self.P_unit_knowing_cluster[unit_type][cluster](percents_list[i])
+        return np.array(d.values())
+
+
+    def tabulate(self, disc_steps):
+        tmp = np.ndarray(shape=(len(disc_steps),
+            self.n_units,
+            len(self.compositions)), dtype='float')
+        for unit in self.P_unit_knowing_cluster:
+            for cluster, prob in self.P_unit_knowing_cluster[unit].iteritems():
+                for i, val in enumerate(disc_steps):
+                    tmp[i][ArmyCompositionModel.unit_to_int(unit)][ArmyCompositionModel.cluster_to_int(cluster)] = prob(val)
+        return tmp
+
+
+    def count(self, percents_list):
+        """ Adds log probabilities of clusters for a given battle """
+        dist = ArmyCompositions.ac_by_race[race].prod_Ui_C(p_l) 
+        for c, logprob in dist.iteritems():
             self.compo_count[c] = self.compo_count.get(c, 0) + logprob
     
+
     def prune(self, tail_numbers_to_prune=0, numbers_to_keep=0):
         """ 
         Removes really unprobable cluster (which were never seen) 
@@ -310,7 +342,6 @@ class ArmyCompositions:
         # /TODO TEST
         # do the actual removing
         for clust in to_rem:
-            #print "removing cluster", clust
             self.compositions.pop(clust)
             for unit in self.P_unit_knowing_cluster:
                 self.P_unit_knowing_cluster[unit].pop(clust, 0)
@@ -318,6 +349,84 @@ class ArmyCompositions:
             print "Clusters:"
             for clust in self.compositions:
                 print clust
+
+
+class ArmyCompositionsPCA(ArmyCompositions):
+    def __init__(self, race, n_components=5):
+        from sklearn import decomposition
+        self.pca = decomposition.PCA(n_components=n_components)
+        self.compositions = range(n_components)
+        self.n_units = len(ArmyCompositions.ut_by[race])
+        self.race = race
+        self.data = []
+        self.register()
+
+
+    def d_prod_Ui_C(self, percents_list):
+        lpc = self.pca.transform(np.array(percents_list))
+        return dict(zip(self.compositions, lpc))
+
+
+    def prod_Ui_C(self, percents_list):
+        return self.pca.transform(np.array(percents_list))
+
+
+    def count(self, p_l):
+        self.data.append(p_l)
+
+
+    def prune(self):
+        """ Fit the PCA """
+        self.data = np.array(self.data)
+        self.pca.fit(self.data)
+
+
+class ArmyCompositionsGMM(ArmyCompositions):
+    def __init__(self, race, n_components=0):
+        from sklearn import mixture
+        if n_components != 0:
+            self.gmm = mixture.GMM(n_components=n_components, covariance_type='full')
+        else:
+            self.gmm = [mixture.GMM(n_components=i, covariance_type='full') for i in range(3,11)]
+        self.compositions = range(n_components)
+        self.n_units = len(ArmyCompositions.ut_by[race])
+        self.race = race
+        self.data = []
+        self.register()
+
+
+    def d_prod_Ui_C(self, percents_list):
+        tmp = self.gmm.predict_proba(np.array([percents_list]))
+        return dict(zip(self.compositions, tmp[0]))
+
+
+    def prod_Ui_C(self, percents_list):
+        tmp = self.gmm.predict_proba(np.array([percents_list]))
+        return tmp[0]
+
+
+    def count(self, p_l):
+        self.data.append(p_l)
+
+
+    def prune(self):
+        """ Fit the GMM. If there is no specified number of clusters 
+        (components), select the lowest BIC GMM """
+        self.data = np.array(self.data)
+        if self.compositions == []:
+            best_gmm = 0
+            best_bic = 1e30
+            for i, g in enumerate(self.gmm):
+                g.fit(self.data)
+                tmp = g.bic(self.data)
+                if tmp < best_bic:
+                    best_gmm = i
+                    best_bic = tmp
+            self.gmm = self.gmm[best_gmm]
+        else:
+            self.gmm.fit(self.data)
+        self.compositions = range(self.gmm.n_components)
+                
 
 
 class ArmyCompositionModel:
@@ -387,9 +496,9 @@ class ArmyCompositionModel:
         self.EC = np.ones(len(eac.compositions)) # ...or learn it!
         self.EC /= sum(self.EC)
         # P(EU | EC) with discretization width (for EU in percent of the army)
-        self.EU_knowing_EC = np.ndarray(shape=(len(self.disc_steps),
-            len(eac.P_unit_knowing_cluster),
-            len(eac.compositions)), dtype='float')
+#        self.EU_knowing_EC = np.ndarray(shape=(len(self.disc_steps),
+#            len(eac.n_units),
+#            len(eac.compositions)), dtype='float')
         # P(EC^t|EC^{t+1}) learned transitions
         self.EC_knowing_ECnext = np.ndarray(shape=(len(eac.compositions),
             len(eac.compositions)), dtype='float')
@@ -408,38 +517,30 @@ class ArmyCompositionModel:
         self.W_knowing_Ccounter_ECnext.fill(ADD_SMOOTH_C_EC)
         
         # P(U|C_final) with discretization width (for U in percent of the army)
-        self.U_knowing_Cfinal = np.ndarray(shape=(len(self.disc_steps),
-            len(ac.P_unit_knowing_cluster),
-            len(ac.compositions)), dtype='float')
+#        self.U_knowing_Cfinal = np.ndarray(shape=(len(self.disc_steps),
+#            len(ac.n_units),
+#            len(ac.compositions)), dtype='float')
 
         # fill P(U|C) and P(EU|EC) for a given discretization of U/EU (width)
-        for unit in ac.P_unit_knowing_cluster:
-            for cluster, prob in ac.P_unit_knowing_cluster[unit].iteritems():
-                for i, val in enumerate(self.disc_steps):
-                    self.U_knowing_Cfinal[i][ArmyCompositionModel.unit_to_int(unit)][ArmyCompositionModel.cluster_to_int(cluster)] = prob(val)
-        for unit in eac.P_unit_knowing_cluster:
-            for cluster, prob in eac.P_unit_knowing_cluster[unit].iteritems():
-                for i, val in enumerate(self.disc_steps):
-                    self.EU_knowing_EC[i][ArmyCompositionModel.unit_to_int(unit)][ArmyCompositionModel.cluster_to_int(cluster)] = prob(val)
+#        self.U_knowing_Cfinal = ac.tabulate(self.disc_steps)
+#        self.EU_knowing_EC = eac.tabulate(self.disc_steps)
+        
+        self.prod_Ui_Cfinal = ac.prod_Ui_C
+        self.prod_EU_EC = eac.prod_Ui_C
 
-    @staticmethod
-    def distrib_C(prob_table, prior, list_percents):
-        """ with a P(U|C) prob_table and a list of percentage of each
-        unit in the army, returns the distribution on C (clusters) """
-        tmp = []
-        # P(C|U_{1:n}) = \prod_{i=1}^n[P(U_i|C)].P(C)/P(U_{1:n})
-        for c in range(prob_table.shape[2]):
-            tmp.append(reduce(lambda x,y: x*y, 
-                    [prob_table[int(list_percents[i]*1.0/disc_width)][i][c]
-                        for i in range(prob_table.shape[1])]))
-        tmp = np.array(tmp)*prior
-        return tmp/sum(tmp)
 
-    def distrib_Cfinal_knowing_U(self, l_percents):
-        return ArmyCompositionModel.distrib_C(self.U_knowing_Cfinal, self.Cfinal, l_percents)
-
-    def distrib_EC_knowing_EU(self, l_percents):
-        return ArmyCompositionModel.distrib_C(self.EU_knowing_EC, self.EC, l_percents)
+#    @staticmethod
+#    def distrib_C(prob_table, prior, list_percents):
+#        """ with a P(U|C) prob_table and a list of percentage of each
+#        unit in the army, returns the distribution on C (clusters) """
+#        tmp = []
+#        # P(C|U_{1:n}) = \prod_{i=1}^n[P(U_i|C)].P(C)/P(U_{1:n})
+#        for c in range(prob_table.shape[2]):
+#            tmp.append(reduce(lambda x,y: x*y, 
+#                    [prob_table[int(list_percents[i]*1.0/disc_width)][i][c]
+#                        for i in range(prob_table.shape[1])]))
+#        tmp = np.array(tmp)*prior
+#        return tmp/sum(tmp)
 
 
     def train(self, battle):
@@ -449,7 +550,6 @@ class ArmyCompositionModel:
             p1_loss = p1_before-p1_after
             norm_p2_loss = (1.0*p2_before/p1_before)*(p2_before-p2_after)
             return 1.0 - 0.5*min(2.0, p1_loss/(norm_p2_loss+0.0001))
-
         w, l = get_winner_loser(battle)
         w_a, l_a = battle[2+w], battle[2+l] # init (total) army scores
         w_s, l_s = battle[4+w], battle[4+l] # final scores
@@ -458,21 +558,29 @@ class ArmyCompositionModel:
         races = battle[-1]
         w_p = percent_list.dict_to_list(battle[w], battle[-1][w])
         l_p = percent_list.dict_to_list(battle[l], battle[-1][l])
+        print "================================"
+        print battle
+        win_total = 0.0
+        lose_total = 0.0
         if races[w] == self.race:
-            distrib_C_us = self.distrib_Cfinal_knowing_U(w_p)
-            distrib_C_them = self.distrib_EC_knowing_EU(l_p)
+            distrib_C_us = self.prod_Ui_Cfinal(w_p)
+            distrib_C_them = self.prod_EU_EC(l_p)
             for c, p in enumerate(distrib_C_us):
                 for ec, ep in enumerate(distrib_C_them):
-                    ####print "1 adding", p*ep*winner_efficiency, "to", c, ec
                     self.W_knowing_Ccounter_ECnext[1][c][ec] += p*ep*winner_efficiency
+                    win_total += p*ep*winner_efficiency
+            print "winner, added:", win_total
         loser_efficiency = efficiency_p1(l_a, l_s, w_a, w_s)
         if races[l] == self.race:
-            distrib_C_us = self.distrib_Cfinal_knowing_U(l_p)
-            distrib_C_them = self.distrib_EC_knowing_EU(w_p)
+
+            distrib_C_us = self.prod_Ui_Cfinal(l_p)
+            distrib_C_them = self.prod_EU_EC(w_p)
             for c, p in enumerate(distrib_C_us):
                 for ec, ep in enumerate(distrib_C_them):
-                    ####print "0 adding", p*ep*winner_efficiency, "to", c, ec
                     self.W_knowing_Ccounter_ECnext[0][c][ec] += p*ep*loser_efficiency
+                    lose_total += p*ep*loser_efficiency
+            print "loser, added:", lose_total
+        print "================================"
 
         
     def normalize(self):
@@ -484,47 +592,76 @@ class ArmyCompositionModel:
         for cn in range(self.W_knowing_Ccounter_ECnext.shape[1]):
             for ecn in range(self.W_knowing_Ccounter_ECnext.shape[2]):
                 self.W_knowing_Ccounter_ECnext[:,cn,ecn] /= sum(self.W_knowing_Ccounter_ECnext[:,cn,ecn])
-        print "U knowing C_final", self.U_knowing_Cfinal
-        print "==================================="
-        print "EU knowing EC", self.EU_knowing_EC
-        print "==================================="
-        print "W=true knowing C,EC"
-        for c in range(self.W_knowing_Ccounter_ECnext.shape[1]):
-            print "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
-            print ArmyCompositions.ac_by_race[self.race].compositions.keys()[c]
-            print ""
-            print filter(lambda x: abs(x[1]-0.5) > 0.01, zip(ArmyCompositions.ac_by_race[self.erace].compositions.keys(), self.W_knowing_Ccounter_ECnext[1][c]))
-            print "" 
-            print filter(lambda x: abs(x[1]-0.5) > 0.01, zip(ArmyCompositions.ac_by_race[self.erace].compositions.keys(), self.W_knowing_Ccounter_ECnext[0][c]))
-            print "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
-        print "==================================="
+        if SHOW_NORMALIZE_OUTPUT:
+            print "U knowing C_final", self.U_knowing_Cfinal
+            print "==================================="
+            print "EU knowing EC", self.EU_knowing_EC
+            print "==================================="
+            print "W=true knowing C,EC"
+            for c in range(self.W_knowing_Ccounter_ECnext.shape[1]):
+                print "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+                print ArmyCompositions.ac_by_race[self.race].compositions.keys()[c]
+                print ""
+                print filter(lambda x: abs(x[1]-0.5) > 0.01, zip(ArmyCompositions.ac_by_race[self.erace].compositions.keys(), self.W_knowing_Ccounter_ECnext[1][c]))
+                print "" 
+                print filter(lambda x: abs(x[1]-0.5) > 0.01, zip(ArmyCompositions.ac_by_race[self.erace].compositions.keys(), self.W_knowing_Ccounter_ECnext[0][c]))
+                print "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
+            print "==================================="
 
-    def winner_battle(self, battle):
-        """ use P(C|EC) pondered by initial scores to determine the winner """
+    def winner_battle_C_EC_only(self, battle, most_probable=False):
+        """ use P(W|C,EC).P(C).P(EC) to determine the winner """
         p1_p = percent_list.dict_to_list(battle[0], battle[-1][0])
-        distrib_C_p1 = self.distrib_Cfinal_knowing_U(p1_p)
+        distrib_C_p1 = self.prod_Ui_Cfinal(p1_p)
         p2_p = percent_list.dict_to_list(battle[1], battle[-1][1])
-        distrib_C_p2 = self.distrib_EC_knowing_EU(p2_p)
-
+        distrib_C_p2 = self.prod_EU_EC(p2_p)
         t = 0.0
+        pep = 0.0
         for c, p in enumerate(distrib_C_p1):
             for ec, ep in enumerate(distrib_C_p2):
+                if most_probable:
+                    if p*ep > pep:
+                        t = self.W_knowing_Ccounter_ECnext[1,c,ec]
+                        pep = p*ep
+                else:
+                    t += self.W_knowing_Ccounter_ECnext[1,c,ec] * p * ep
+        # if t > 0.5 it means C beats EC, otherwise C loses against EC
+        if t >= 0.5:
+            return 0
+        else:
+            return 1
+
+    def winner_battle(self, battle):
+        """ use P(W|C,EC).P(C).P(EC) + score before to determine the winner """
+        p1_p = percent_list.dict_to_list(battle[0], battle[-1][0])
+        distrib_C_p1 = self.prod_Ui_Cfinal(p1_p)
+        p2_p = percent_list.dict_to_list(battle[1], battle[-1][1])
+        distrib_C_p2 = self.prod_EU_EC(p2_p)
+
+        t = 0.0
+        #pep = 0.0
+        for c, p in enumerate(distrib_C_p1):
+            for ec, ep in enumerate(distrib_C_p2):
+                #if p*ep > pep:
+                #    t = self.W_knowing_Ccounter_ECnext[1,c,ec]
+                #    pep = p*ep
                 t += self.W_knowing_Ccounter_ECnext[1,c,ec] * p * ep
+        #for c, p in enumerate(distrib_C_p1):
+        #    for ec, ep in enumerate(distrib_C_p2):
+        #        t -= self.W_knowing_Ccounter_ECnext[0,c,ec] * p * ep
+
         # if t > 0.5 it means C beats EC, otherwise C loses against EC
         factor = t*2
-#        print distrib_C_p1
-#        print distrib_C_p2
-        #print zip(ArmyCompositions.ut_by_race[battle[-1][0]], p1_p)
+        print ">>> winner battle:"
         print battle[0]
         print filter(lambda x: x[1] > 0.001, zip(ArmyCompositions.ac_by_race[battle[-1][0]].compositions, distrib_C_p1))
-        #print zip(ArmyCompositions.ut_by_race[battle[-1][1]], p2_p)
         print battle[1]
         print filter(lambda x: x[1] > 0.001, zip(ArmyCompositions.ac_by_race[battle[-1][1]].compositions, distrib_C_p2))
-        print factor
+        print "factor:", factor
+        #if factor >= 1.0:
         if battle[2]*factor > battle[3]:
-            return 1
-        else:
             return 0
+        else:
+            return 1
         
 
 
@@ -570,9 +707,18 @@ armies_battles_for_clust = {'P': percent_list(),
         'Z': percent_list()}
 battles_for_clustering = []
 fnamelist = []
-ArmyCompositions('P')
-ArmyCompositions('T')
-ArmyCompositions('Z')
+#ArmyCompositions('P')
+#ArmyCompositions('T')
+#ArmyCompositions('Z')
+
+#ArmyCompositionsPCA('P')
+#ArmyCompositionsPCA('T')
+#ArmyCompositionsPCA('Z')
+
+ArmyCompositionsGMM('P', 10)
+ArmyCompositionsGMM('T', 10)
+ArmyCompositionsGMM('Z', 10)
+
 armies_compositions_models = {}
 tech_trees = {}
 
@@ -647,16 +793,18 @@ if __name__ == "__main__":
                 x_l.append('MostProbableClust')
                 if PARALLEL_COORDINATES_PLOT:
                     parallel_coordinates(l, x_labels=x_l).savefig("parallel_"+race+".png")
+
                 for p_l in l:
-                    dist = ArmyCompositions.ac_by_race[race].log_pseudo_distrib(p_l) 
-                    ArmyCompositions.ac_by_race[race].count(dist)
+                    ArmyCompositions.ac_by_race[race].count(p_l)
+                ArmyCompositions.ac_by_race[race].prune()
+
+                for p_l in l:
+                    dist = ArmyCompositions.ac_by_race[race].d_prod_Ui_C(p_l) 
                     decreasing_probs_clusters = sorted([(c,logprob) for c,logprob in dist.iteritems()], key=lambda x: x[1], reverse=True)
                     if DEBUG_OUR_CLUST:
                         print zip(x_l, map(lambda x: "%.2f" % x, p_l))
                         print decreasing_probs_clusters[:5]
                     annotated_l.append(p_l + [decreasing_probs_clusters[0][0]])
-                    # /!\ annotated without pruning (goes after)
-                ArmyCompositions.ac_by_race[race].prune()
 
                 if CSV_ARMIES_OUTPUT:
                     csv = open(race+'_armies.csv', 'w')
@@ -693,6 +841,7 @@ if __name__ == "__main__":
                 test_battles.extend(battles_c)
 
             score_simple_outcome_predictor = 0
+            cluster_outcome_predictor = 0
             score_cluster_outcome_predictor = 0
             for battle in test_battles:
                 ### simple outcome predictor: bigger army wins
@@ -702,6 +851,8 @@ if __name__ == "__main__":
                 ### outcome prediction taking clusters into account
                 #good = False
                 mu = battle[-1][0] + 'v' + battle[-1][1]
+                if armies_compositions_models[mu].winner_battle_C_EC_only(battle) == get_winner_loser(battle)[0]:
+                    cluster_outcome_predictor += 1
                 if armies_compositions_models[mu].winner_battle(battle) == get_winner_loser(battle)[0]:
                     score_cluster_outcome_predictor += 1
 
@@ -709,7 +860,8 @@ if __name__ == "__main__":
                 #    mu2 = battle[-1][1] + 'v' + battle[-1][0]
 
             print "simple outcome predictor performance:", score_simple_outcome_predictor*1.0/len(test_battles), ':', score_simple_outcome_predictor, '/', len(test_battles)
-            print "cluster outcome predictor performance:", score_cluster_outcome_predictor*1.0/len(test_battles), ':', score_cluster_outcome_predictor, '/', len(test_battles)
+            print "cluster only outcome predictor performance:", cluster_outcome_predictor*1.0/len(test_battles), ':', cluster_outcome_predictor, '/', len(test_battles)
+            print "(score * cluster factor) outcome predictor performance:", score_cluster_outcome_predictor*1.0/len(test_battles), ':', score_cluster_outcome_predictor, '/', len(test_battles)
 
     else:
         print >> sys.stderr, "usage:"
