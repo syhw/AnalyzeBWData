@@ -26,11 +26,11 @@ except:
 
 SCORES_REGRESSION = False # try to do battles scores regressions
 MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
-MAX_FORCES_RATIO = 1.3 # max differences between engaged forces
-WITH_STATIC_DEFENSE = False # tells if we include static defense in armies TODO
-WITH_WORKERS = False # tells if we include workers in armies TODO
+MAX_FORCES_RATIO = 1.2 # max differences between engaged forces
+WITH_STATIC_DEFENSE = True # tells if we include static defense in armies TODO
+WITH_WORKERS = True # tells if we include workers in armies TODO
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
-DEBUG_OUR_CLUST = True # debugging output for our clustering
+DEBUG_OUR_CLUST = False # debugging output for our clustering
 SHOW_NORMALIZE_OUTPUT = False # show normalized tables which are not uniform
 NUMBER_OF_TEST_GAMES = 50 # number of test games to use
 PARALLEL_COORDINATES_PLOT = False # should we plot units percentages?
@@ -40,6 +40,7 @@ LEARNED_EC_KNOWING_ETT = False # TODO
 WITH_SCORE_RATIO = True # use score ratio instead of just counting for units
 ADD_SMOOTH_EC_TT = 0.01
 ADD_SMOOTH_C_EC = 0.01
+STATIC_DEFENSE_MULTIPLIER = 1.5 # how much to multiply static defense score by
 disc_width = 0.01 # width of bins in P(Unit_i | C)
 epsilon = 1.0e-6 # lowest not zero
 
@@ -47,6 +48,8 @@ print >> sys.stderr, "SCORES_REGRESSION ",    SCORES_REGRESSION
 print >> sys.stderr, "MIN_POP_ENGAGED ",      MIN_POP_ENGAGED 
 print >> sys.stderr, "MAX_FORCES_RATIO ",     MAX_FORCES_RATIO 
 print >> sys.stderr, "WITH_STATIC_DEFENSE ",  WITH_STATIC_DEFENSE 
+if WITH_STATIC_DEFENSE:
+    print >> sys.stderr, "STATIC_DEFENSE_MULTIPLIER", STATIC_DEFENSE_MULTIPLIER
 print >> sys.stderr, "WITH_WORKERS ",         WITH_WORKERS 
 print >> sys.stderr, "CSV_ARMIES_OUTPUT ",    CSV_ARMIES_OUTPUT 
 print >> sys.stderr, "DEBUG_OUR_CLUST ",      DEBUG_OUR_CLUST 
@@ -79,16 +82,21 @@ def to_ratio(d):
     for k,v in d.iteritems():
         tmp = {}
         for unit, numbers in v.iteritems():
-            if not WITH_STATIC_DEFENSE:
-                if unit in unit_types.static_defense_set:
+            tmp[unit] = 0.0
+            if unit in unit_types.static_defense_set:
+                if not WITH_STATIC_DEFENSE:
                     continue
+                else:
+                    tmp[unit] = STATIC_DEFENSE_MULTIPLIER
             if not WITH_WORKERS:
                 if unit in unit_types.workers:
                     continue
+            if tmp[unit] == 0.0: # we will count this unit
+                tmp[unit] = 1.0  # but the normal multiplier (1.0)
             if WITH_SCORE_RATIO:
-                tmp[unit] = unit_types.score_unit(unit)*numbers
+                tmp[unit] *= unit_types.score_unit(unit)*numbers
             else:
-                tmp[unit] = 1.0*numbers
+                tmp[unit] *= numbers
         s = sum(tmp.itervalues())
         for unit in tmp:
             tmp[unit] /= (s+disc_width) # +width to avoid 100% (99%)
@@ -206,6 +214,8 @@ class ArmyCompositions:
         ut_by_race[race] = unit_types.by_race.military[race]+[unit_types.by_race.drop[race]]
         if WITH_STATIC_DEFENSE:
             ut_by_race[race].extend(unit_types.by_race.static_defense[race])
+        if WITH_WORKERS:
+            ut_by_race[race].append(unit_types.by_race.workers[race])
     ut_by = copy.deepcopy(ut_by_race)
     ut_by['T'].pop(ut_by['T'].index('Terran Siege Tank Siege Mode'))
     special = { # list special units by race and their multipliers in the list of percents
