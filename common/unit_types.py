@@ -110,6 +110,10 @@ static_defense_shoot_down_set = static_defense_set and shoot_down_set
 
 static_defense_shoot_up_set = static_defense_set and shoot_up_set
 
+buildings_sets = {'T': set(by_race.buildings['T']),
+        'P': set(by_race.buildings['P']),
+        'Z': set(by_race.buildings['Z'])}
+
 required_for = {
         'Terran Marine': ['Terran Barracks'], 
         'Terran Ghost': ['Terran Barracks', 'Terran Academy', 'Terran Science Facility', 'Terran Covert Ops'], 
@@ -150,6 +154,14 @@ required_for = {
         'Protoss Shuttle': ['Protoss Robotics Facility'],
         'Zerg Overlord': ['Zerg Lair']
         }
+
+
+def map_to_TT_enum(name):
+    if name == 'Terran Comsat Station':
+        return 'Terran_ComSat'
+    elif name == 'Zerg Infested Command Center':
+        return ''
+    return name.replace(' ', '_')
 
 
 @memoize

@@ -1,11 +1,42 @@
+from common import unit_types
+
+go_to_2 = set([ # don't go to 11
+    'Terran_Command_Center',
+    'Terran_Supply_Depot',
+    'Terran_Refinery',
+    'Terran_Barracks',
+    'Protoss_Nexus',
+    'Protoss_Pylon',
+    'Protoss_Assimilator',
+    'Protoss_Gateway',
+    'Zerg_Hatchery',
+    'Zerg_Extractor',
+    'Zerg_Overlord'])
+
+go_to_3 = set([ # don't go to 11
+    'Terran_Command_Center',
+    'Terran_Supply_Depot',
+    'Terran_Barracks',
+    'Protoss_Nexus',
+    'Protoss_Pylon',
+    'Protoss_Gateway',
+    'Zerg_Hatchery',
+    'Zerg_Overlord'])
+
+go_to_4 = set([ # don't go to 11
+    'Terran_Barracks',
+    'Protoss_Gateway',
+    'Zerg_Hatchery']) 
+
+
 class Unit:
-    def __init__(self, uid, unit_name, player, dm, cdr=-1, reg=-1):
+    def __init__(self, uid, unit_name, player, dm=None, cdr=-1, reg=-1):
         self.uid = uid
         self.name = unit_name
         self.player = player
         self.CDR = -1
         self.Reg = -1
-        if type(dm) != int:
+        if dm != None and type(dm) != int:
             if reg in dm.dist_Reg:
                 self.Reg = reg
             if cdr in dm.dist_CDR:
@@ -24,7 +55,7 @@ class GameState:
     Keeps track of alive units and their positions, keeps tracks of bases, 
     tracked_units/remove/add could be refactored: tracked_u[uid] = Unit(uid,...
     """
-    def __init__(self, dm):
+    def __init__(self, dm=None):
         self.players_races = {} # races[player] in {'P', 'T', 'Z'}
         self.players_bases = {} # bases[player]['CDR'/'Reg'] = {where: number}
         self.floc = None
@@ -43,7 +74,7 @@ class GameState:
                 self.players_races[l[1]] = 'T'
             elif 'Zerg' in line:
                 self.players_races[l[1]] = 'Z'
-        if len(l) < 9:
+        if len(l) < 9 or self.dm == None:
             self.tracked_units[uid] = Unit(uid, l[4], l[1])
         else:
             self.tracked_units[uid] = Unit(uid, l[4], l[1], self.dm,
@@ -54,8 +85,8 @@ class GameState:
     def morphed(self, line):
         l = line.split(',')
         uid = int(l[3])
-        if len(l) < 9:
-            if uid in self.tracked_units:
+        if len(l) < 9 or self.dm == None:
+            if uid in self.tracked_units and self.dm != None:
                 self.tracked_units[uid] = Unit(uid, l[4], l[1], self.dm,
                     self.tracked_units[uid].CDR, self.tracked_units[uid].Reg)
             else:
@@ -152,5 +183,25 @@ class GameState:
             if u not in has_units:
                 return False
         return True
+
+    def get_buildings(self, player):
+        r = set()
+        for u in self.tracked_units.itervalues():
+            if u.player == player and\
+                u.name in unit_types.buildings_sets[self.players_races[player]]:
+                un = unit_types.map_to_TT_enum(u.name)
+                if un == '':
+                    continue
+                if un in r and un in go_to_2:
+                    if un+'2' in r and un in go_to_3:
+                        if un+'3' in r and un in go_to_4:
+                            r.add(un+'4')
+                        else:
+                            r.add(un+'3')
+                    else:
+                        r.add(un+'2')
+                else:
+                    r.add(un)
+        return r
 
 

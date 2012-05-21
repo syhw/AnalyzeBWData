@@ -40,6 +40,8 @@ SCALE_UP_SPECIAL_UNITS = False # scale up special units in the list of percents
 ADD_SMOOTH_EC_EC = 0.01 # smoothing
 LEARNED_EC_KNOWING_ETT = False # TODO
 WITH_SCORE_RATIO = True # use score ratio instead of just counting for units
+WITH_STATE = True # use state, and so P(EC^{t+1}|TT) and P(EC|EC^{t+1})
+SECONDS_BEFORE = 30 # number of seconds for between t and t+1
 ADD_SMOOTH_EC_TT = 0.01
 ADD_SMOOTH_C_EC = 0.01
 STATIC_DEFENSE_MULTIPLIER = 1.5 # how much to multiply static defense score by
@@ -62,6 +64,8 @@ print >> sys.stderr, "NUMBER_OF_TEST_GAMES ", NUMBER_OF_TEST_GAMES
 print >> sys.stderr, "PARALLEL_COORDINATES_PLOT ", PARALLEL_COORDINATES_PLOT 
 print >> sys.stderr, "SCALE_UP_SPECIAL_UNITS ", SCALE_UP_SPECIAL_UNITS 
 print >> sys.stderr, "WITH_SCORE_RATIO",      WITH_SCORE_RATIO 
+print >> sys.stderr, "WITH_STATE",            WITH_STATE 
+print >> sys.stderr, "SECONDS_BEFORE",        SECONDS_BEFORE 
 
 
 def evaluate_pop(d):
@@ -107,6 +111,7 @@ def to_ratio(d):
         r[k] = tmp
     return r
 
+
 def extract_armies_battles(f):
     """ take a file and parse it for attacks, returning a list of attacks
     with for each time of the beginning of the attack,
@@ -116,16 +121,34 @@ def extract_armies_battles(f):
         [(attack_time, {plid:{uid:nb}}, {plid:{uid:nb}}, {plid:wrks_lost})] """
     attacks = []
     obs = attack_tools.Observers()
-    #st = state_tools TODO XXX
+    if WITH_STATE:
+        st = state_tools.GameState()
+        buf_lines = []
+        # the replay is already started by data_tools.players_races
+
     for line in f:
         line = line.rstrip('\r\n')
         obs.detect_observers(line)
+        if WITH_STATE:
+            l = line.split(',')
+            if len(l) > 1:
+                time_sec = int(l[0])/24
+                buf_lines.append((time_sec, line))
+                while len(buf_lines) and buf_lines[0][0] + SECONDS_BEFORE <= time_sec:
+                    st.update(buf_lines.pop(0)[1])
+
         if 'IsAttacked' in line:
             tmp = data_tools.parse_dicts(line, lambda x: int(x))
             # sometimes the observers are detected in the fight (their SCVs)
             tmp = obs.heuristics_remove_observers(tmp)
             if len(tmp[0]) == 2: # when a player killed observer's units...
-                attacks.append((int(line.split(',')[0]),tmp[0], tmp[1], tmp[2]))
+                if WITH_STATE:
+                    buildings = {}
+                    for pl in tmp[0]:
+                        buildings[pl] = st.get_buildings(pl)
+                    attacks.append((int(line.split(',')[0]),tmp[0], tmp[1], tmp[2], buildings))
+                else:
+                    attacks.append((int(line.split(',')[0]),tmp[0], tmp[1], tmp[2]))
     return attacks
 
 def format_battle_init(players_races, army):
@@ -187,9 +210,10 @@ def format_battle_for_clust_adv(players_races, armies_battle):
                 return [], [], [], [], [], [], {}
         # /these two loops just for Dark Archon's mind controlled armies
         score_after = score_units(armies_battle[2])
-        return compo[p1], compo[p2], score_before[p1], score_before[p2], score_after[p1], score_after[p2], races
+        return compo[p1], compo[p2], score_before[p1], score_before[p2], score_after[p1], score_after[p2], armies_battle[-1][p1], armies_battle[-1][p2], races
     else:
-        return [], [], [], [], [], [], {}
+        return [], [], [], [], [], [], set(), set(), {}
+
 
 def format_battle_for_clust(players_races, armies_battle):
     """ take an "extract_armies_battles" formatted battle data and make it
@@ -626,17 +650,19 @@ class ArmyCompositionModel:
         d2 = self.alpha*P_Ctactics + (1-self.alpha)*P_Ccounter
         return d1*d2 # TODO verify
     
-    def __init__(self, ac, eac, len_e_vector_X=0, alpha=0.25):
+    def __init__(self, mu, ac, eac, alpha=0.25):
         """
         Takes two ArmyComposition objects (for us and for the enemy) and
         and builds an ArmyCompositionModel
         """
+        assert (mu[0] == ac.race and mu[2] == eac.race)
         self.n_train = 0
         self.alpha = alpha
         self.race = ac.race
         self.erace = eac.race
         self.matchup = self.race + 'v' + self.erace
         self.disc_steps = np.arange(0, 1, disc_width)
+        self.tech_trees = vector_X(mu[0], mu[2]) # gives techtrees of mu[2]
 
         # P(Cfinal)
         self.Cfinal = np.ones(len(ac.compositions)) # can put a prior here...
@@ -654,7 +680,7 @@ class ArmyCompositionModel:
         # P(EC^{t+1}|ETT) possible EC under ETT _OR_ learned correlations
         if LEARNED_EC_KNOWING_ETT:
             self.ECnext_knowing_ETT = np.ndarray(shape=(len(eac.compositions),
-                len_e_vector_X), dtype='float')
+                len(self.tech_trees)), dtype='float')
             self.ECnext_knowing_ETT.fill(ADD_SMOOTH_EC_TT)
         # else -> function 1.0 for ec compatibles with ett, else 0.0
 
@@ -669,7 +695,7 @@ class ArmyCompositionModel:
         self.prod_EU_EC = eac.prod_Ui_C
 
 
-    def train(self, battle, with_effiency=False):
+    def train_W_knowing_C_EC(self, battle, with_efficiency=False):
         def efficiency(us_before, us_after, them_before, them_after):
             """ compute the efficiency of the battle our ("us") POV """
             our_loss = us_before-us_after
@@ -677,8 +703,6 @@ class ArmyCompositionModel:
             our_advantage = us_before/(them_before+0.0001)
             our_efficiency = their_loss/(our_loss+0.0001)
             return min(2.0, our_efficiency/our_advantage)
-
-        self.n_train += 1
 
         w, l = get_winner_loser(battle)
         w_a, l_a = battle[2+w], battle[2+l] # init (total) army scores
@@ -698,7 +722,7 @@ class ArmyCompositionModel:
             distrib_C_them = self.prod_EU_EC(l_p)
             for c, p in enumerate(distrib_C_us):
                 for ec, ep in enumerate(distrib_C_them):
-                    if not with_effiency:
+                    if not with_efficiency:
                         self.W_knowing_Ccounter_ECnext[1][c][ec] += p*ep
                     else:
                         self.W_knowing_Ccounter_ECnext[1][c][ec] += p*ep*winner_efficiency
@@ -710,13 +734,41 @@ class ArmyCompositionModel:
             distrib_C_them = self.prod_EU_EC(w_p)
             for c, p in enumerate(distrib_C_us):
                 for ec, ep in enumerate(distrib_C_them):
-                    if not with_effiency:
+                    if not with_efficiency:
                         self.W_knowing_Ccounter_ECnext[0][c][ec] += p*ep
                     else:
                         self.W_knowing_Ccounter_ECnext[0][c][ec] += p*ep*winner_efficiency
 #                    lose_total += p*ep*winner_efficiency
 #            print "loser, added:", lose_total
 #        print "================================"
+
+
+    def train_Ctplus1_knowing_TT(self, battle):
+        p1r, p2r = battle[-1][0], battle[-1][1]
+        if p1r == self.erace:
+            distrib_C_p1 = self.prod_EU_EC(percent_list.dict_to_list(battle[0], p1r))
+            print self.tech_trees.enum
+            print battle[-3]
+        if p2r == self.erace:
+            distrib_C_p2 = self.prod_EU_EC(percent_list.dict_to_list(battle[1], p2r))
+            print self.tech_trees.enum
+            print battle[-2]
+        #self.ECnext_knowing_ETT
+        pass
+
+
+    def train_ECtplus1_knowing_ECt(self, battle):
+        pass
+
+
+    def train(self, battle, with_efficiency=False):
+        self.n_train += 1
+        ### *********** train P(W|C,EC) ***********
+        self.train_W_knowing_C_EC(battle, with_efficiency)
+        ### *********** train P(C^{t+1}|TT) ***********
+        self.train_Ctplus1_knowing_TT(battle)
+        ### *********** train P(EC^t|EC^{t+1}) ***********
+        self.train_ECtplus1_knowing_ECt(battle)
 
         
     def normalize(self):
@@ -837,8 +889,8 @@ def matchup(race, d):
 
 
 def get_winner_loser(b):
-    # b[-3] = score player 1, b[-2] = score player 2
-    if b[-2] > b[-3]:
+    # b[-5] = score player 1, b[-4] = score player 2
+    if b[-4] > b[-5]:
         return 1, 0
     else:
         return 0, 1
@@ -940,7 +992,10 @@ if __name__ == "__main__":
 
             ### Sort armies by race and put inside battles_for_clust
             for b in battles_c:
-                assert(len(b) == 7) # enforce that b is a battle in the format
+                if WITH_STATE:
+                    assert(len(b) == 9) # enforce format
+                else:
+                    assert(len(b) == 7) # enforce format
                 for race in armies_battles_for_clust.iterkeys():
                     for i,prace in b[-1].iteritems():
                         if prace == race:
@@ -982,11 +1037,7 @@ if __name__ == "__main__":
 
         ### Learn the model's parameters
         for mu in armies_compositions_models:
-            tech_trees[mu] = vector_X(mu[0], mu[2]) # gives techtrees of mu[2]
-            if LEARNED_EC_KNOWING_ETT:
-                armies_compositions_models[mu] = ArmyCompositionModel(ArmyCompositions.ac_by_race[mu[0]], ArmyCompositions.ac_by_race[mu[2]], len(tech_trees[mu].vector_X)) # TODO review
-            else:
-                armies_compositions_models[mu] = ArmyCompositionModel(ArmyCompositions.ac_by_race[mu[0]], ArmyCompositions.ac_by_race[mu[2]])
+            armies_compositions_models[mu] = ArmyCompositionModel(mu, ArmyCompositions.ac_by_race[mu[0]], ArmyCompositions.ac_by_race[mu[2]])
             for battle in battles_for_clustering:
                 # (army_p1, army_p2, score_before_p1, score_before_p2,
                 # score_after_p1, score_after_p2, players_races)
