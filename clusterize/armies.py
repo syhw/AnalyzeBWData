@@ -31,11 +31,11 @@ MAX_FORCES_RATIO = 1.3 # max differences between engaged forces
 WITH_STATIC_DEFENSE = True # tells if we include static defense in armies TODO
 WITH_WORKERS = True # tells if we include workers in armies TODO
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
-DEBUG_OUR_CLUST = False # debugging output for our clustering
+DEBUG_OUR_CLUST = True # debugging output for our clustering
 SHOW_NORMALIZE_OUTPUT = False # show normalized tables which are not uniform
 NUMBER_OF_TEST_GAMES = 50 # number of test games to use
 PARALLEL_COORDINATES_PLOT = False # should we plot units percentages?
-SCALE_UP_SPECIAL_UNITS = False # scale up special units in the list of percents
+SCALE_UP_SPECIAL_UNITS = True # scale up special units in the list of percents
 ADD_SMOOTH_EC_EC = 0.01 # smoothing
 LEARNED_EC_KNOWING_ETT = False # TODO
 WITH_SCORE_RATIO = True # use score ratio instead of just counting for units
@@ -205,7 +205,7 @@ def scale_up_special(l, race):
     no longer percents...) to give more importance to special units """
     tmp = l
     for i, ut in enumerate(ArmyCompositions.ut_by[race]):
-        if ut in ArmyCompositions.special[race] and tmp[i] > 0:
+        if ut in ArmyCompositions.special[race] and tmp[i] > 0.0001:
             tmp[i] += ArmyCompositions.special[race][ut]
     return tmp
             
@@ -232,8 +232,8 @@ class ArmyCompositions:
                 'Terran Dropship': 0},
             'Z': {'Zerg Queen': 0,
                 'Zerg Lurker': 0,
-                'Zerg Defiler': 100000,
-                'Zerg Overlord': 0}#100000}
+                'Zerg Defiler': 0, #100000
+                'Zerg Overlord': 100000}#100000}
             }
 
     ac_by_race = {}
@@ -955,7 +955,7 @@ if __name__ == "__main__":
 
                 for p_l in l:
                     dist = ArmyCompositions.ac_by_race[race].d_prod_Ui_C(p_l) 
-                    decreasing_probs_clusters = sorted([(c,logprob) for c,logprob in dist.iteritems()], key=lambda x: x[1], reverse=True)
+                    decreasing_probs_clusters = sorted([(c,prob) for c,prob in dist.iteritems()], key=lambda x: x[1], reverse=True)
                     if DEBUG_OUR_CLUST:
                         print zip(x_l, map(lambda x: "%.2f" % x, p_l))
                         print decreasing_probs_clusters[:5]
