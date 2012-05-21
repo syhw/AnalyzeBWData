@@ -767,7 +767,7 @@ class ArmyCompositionModel:
         else:
             return 1
 
-    def winner_battle(self, battle):
+    def winner_battle(self, battle, most_probable=False):
         """ use P(W|C,EC).P(C).P(EC) + score before to determine the winner """
         p1_p = percent_list.dict_to_list(battle[0], battle[-1][0])
         distrib_C_p1 = self.prod_Ui_Cfinal(p1_p)
@@ -775,13 +775,15 @@ class ArmyCompositionModel:
         distrib_C_p2 = self.prod_EU_EC(p2_p)
 
         t = 0.0
-        #pep = 0.0
+        pep = 0.0
         for c, p in enumerate(distrib_C_p1):
             for ec, ep in enumerate(distrib_C_p2):
-                #if p*ep > pep:
-                #    t = self.W_knowing_Ccounter_ECnext[1,c,ec]
-                #    pep = p*ep
-                t += self.W_knowing_Ccounter_ECnext[1,c,ec] * p * ep
+                if most_probable:
+                    if p*ep > pep:
+                        t = self.W_knowing_Ccounter_ECnext[1,c,ec]
+                        pep = p*ep
+                else:
+                    t += self.W_knowing_Ccounter_ECnext[1,c,ec] * p * ep
         #for c, p in enumerate(distrib_C_p1):
         #    for ec, ep in enumerate(distrib_C_p2):
         #        t -= self.W_knowing_Ccounter_ECnext[0,c,ec] * p * ep
@@ -997,6 +999,7 @@ if __name__ == "__main__":
             cluster_outcome_predictor = 0
             most_prob_cluster_outcome_predictor = 0
             score_cluster_outcome_predictor = 0
+            score_most_prob_outcome_predictor = 0
             for battle in test_battles:
                 ### simple outcome predictor: bigger army wins
                 if (battle[2]-battle[3])*(battle[4]-battle[5]) > 0:
@@ -1011,6 +1014,8 @@ if __name__ == "__main__":
                     most_prob_cluster_outcome_predictor += 1
                 if armies_compositions_models[mu].winner_battle(battle) == get_winner_loser(battle)[0]:
                     score_cluster_outcome_predictor += 1
+                if armies_compositions_models[mu].winner_battle(battle, True) == get_winner_loser(battle)[0]:
+                    score_most_prob_outcome_predictor += 1
 
                 #if not good:
                 #    mu2 = battle[-1][1] + 'v' + battle[-1][0]
@@ -1019,6 +1024,7 @@ if __name__ == "__main__":
             print "cluster only outcome predictor performance:", cluster_outcome_predictor*1.0/len(test_battles), ':', cluster_outcome_predictor, '/', len(test_battles)
             print "most prob cluster only outcome predictor performance:", most_prob_cluster_outcome_predictor*1.0/len(test_battles), ':', most_prob_cluster_outcome_predictor, '/', len(test_battles)
             print "(score * cluster factor) outcome predictor performance:", score_cluster_outcome_predictor*1.0/len(test_battles), ':', score_cluster_outcome_predictor, '/', len(test_battles)
+            print "(score * most prob cluster) outcome predictor performance:", score_most_prob_outcome_predictor*1.0/len(test_battles), ':', score_most_prob_outcome_predictor, '/', len(test_battles)
 
     else:
         print >> sys.stderr, "usage:"
