@@ -26,7 +26,7 @@ except:
 
 SCORES_REGRESSION = False # try to do battles scores regressions
 MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
-MAX_FORCES_RATIO = 1.5 # max differences between engaged forces
+MAX_FORCES_RATIO = 1.3 # max differences between engaged forces
 WITH_STATIC_DEFENSE = False # tells if we include static defense in armies TODO
 WITH_WORKERS = False # tells if we include workers in armies TODO
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
@@ -34,7 +34,7 @@ DEBUG_OUR_CLUST = True # debugging output for our clustering
 SHOW_NORMALIZE_OUTPUT = False # show normalized tables which are not uniform
 NUMBER_OF_TEST_GAMES = 50 # number of test games to use
 PARALLEL_COORDINATES_PLOT = False # should we plot units percentages?
-SCALE_UP_SPECIAL_UNITS = True # scale up special units in the list of percents
+SCALE_UP_SPECIAL_UNITS = False # scale up special units in the list of percents
 ADD_SMOOTH_EC_EC = 0.01 # smoothing
 LEARNED_EC_KNOWING_ETT = False # TODO
 WITH_SCORE_RATIO = True # use score ratio instead of just counting for units
@@ -195,8 +195,8 @@ def scale_up_special(l, race):
     no longer percents...) to give more importance to special units """
     tmp = l
     for i, ut in enumerate(ArmyCompositions.ut_by[race]):
-        if ut in ArmyCompositions.special[race]:
-            tmp[i] *= ArmyCompositions.special[race][ut]
+        if ut in ArmyCompositions.special[race] and tmp[i] > 0:
+            tmp[i] += ArmyCompositions.special[race][ut]
     return tmp
             
 
@@ -209,19 +209,19 @@ class ArmyCompositions:
     ut_by = copy.deepcopy(ut_by_race)
     ut_by['T'].pop(ut_by['T'].index('Terran Siege Tank Siege Mode'))
     special = { # list special units by race and their multipliers in the list of percents
-            'P': {'Protoss Observer': 10,
-                'Protoss Arbiter': 1,
-                'Protoss High Templar': 1,
-                'Protoss Dark Archon': 1,
-                'Protoss Shuttle': 1},
-            'T': {'Terran Science Vessel': 1,
-                'Terran Siege Tank Tank Mode': 1,
-                'Terran Ghost': 1,
-                'Terran Dropship': 1},
-            'Z': {'Zerg Queen': 1,
-                'Zerg Lurker': 1,
-                'Zerg Defiler': 1,
-                'Zerg Overlord': 1}
+            'P': {'Protoss Observer': 100000,
+                'Protoss Arbiter': 0, #100000,
+                'Protoss High Templar': 0,
+                'Protoss Dark Archon': 0,
+                'Protoss Shuttle': 0},
+            'T': {'Terran Science Vessel': 100000,
+                'Terran Siege Tank Tank Mode': 0,
+                'Terran Ghost': 0,
+                'Terran Dropship': 0},
+            'Z': {'Zerg Queen': 0,
+                'Zerg Lurker': 0,
+                'Zerg Defiler': 100000,
+                'Zerg Overlord': 0}#100000}
             }
 
     ac_by_race = {}
@@ -621,20 +621,20 @@ class ArmyCompositionModel:
         self.erace = eac.race
         self.matchup = self.race + 'v' + self.erace
         self.disc_steps = np.arange(0, 1, disc_width)
+
         # P(Cfinal)
         self.Cfinal = np.ones(len(ac.compositions)) # can put a prior here...
         self.Cfinal /= sum(self.Cfinal)
+
         # P(EC)
         self.EC = np.ones(len(eac.compositions)) # ...or learn it!
         self.EC /= sum(self.EC)
-        # P(EU | EC) with discretization width (for EU in percent of the army)
-#        self.EU_knowing_EC = np.ndarray(shape=(len(self.disc_steps),
-#            len(eac.n_units),
-#            len(eac.compositions)), dtype='float')
+
         # P(EC^t|EC^{t+1}) learned transitions
         self.EC_knowing_ECnext = np.ndarray(shape=(len(eac.compositions),
             len(eac.compositions)), dtype='float')
         self.EC_knowing_ECnext.fill(ADD_SMOOTH_EC_EC)
+
         # P(EC^{t+1}|ETT) possible EC under ETT _OR_ learned correlations
         if LEARNED_EC_KNOWING_ETT:
             self.ECnext_knowing_ETT = np.ndarray(shape=(len(eac.compositions),
@@ -648,31 +648,9 @@ class ArmyCompositionModel:
             len(eac.compositions)), dtype='float')
         self.W_knowing_Ccounter_ECnext.fill(ADD_SMOOTH_C_EC)
         
-        # P(U|C_final) with discretization width (for U in percent of the army)
-#        self.U_knowing_Cfinal = np.ndarray(shape=(len(self.disc_steps),
-#            len(ac.n_units),
-#            len(ac.compositions)), dtype='float')
-
-        # fill P(U|C) and P(EU|EC) for a given discretization of U/EU (width)
-#        self.U_knowing_Cfinal = ac.tabulate(self.disc_steps)
-#        self.EU_knowing_EC = eac.tabulate(self.disc_steps)
-        
+        # P(U|C_final) and P(EU|EC) from ac and eac
         self.prod_Ui_Cfinal = ac.prod_Ui_C
         self.prod_EU_EC = eac.prod_Ui_C
-
-
-#    @staticmethod
-#    def distrib_C(prob_table, prior, list_percents):
-#        """ with a P(U|C) prob_table and a list of percentage of each
-#        unit in the army, returns the distribution on C (clusters) """
-#        tmp = []
-#        # P(C|U_{1:n}) = \prod_{i=1}^n[P(U_i|C)].P(C)/P(U_{1:n})
-#        for c in range(prob_table.shape[2]):
-#            tmp.append(reduce(lambda x,y: x*y, 
-#                    [prob_table[int(list_percents[i]*1.0/disc_width)][i][c]
-#                        for i in range(prob_table.shape[1])]))
-#        tmp = np.array(tmp)*prior
-#        return tmp/sum(tmp)
 
 
     def train(self, battle, with_effiency=False):
