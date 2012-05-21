@@ -28,14 +28,15 @@ except:
 SCORES_REGRESSION = False # try to do battles scores regressions
 MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
 MAX_FORCES_RATIO = 1.3 # max differences between engaged forces
-WITH_STATIC_DEFENSE = True # tells if we include static defense in armies TODO
-WITH_WORKERS = True # tells if we include workers in armies TODO
+WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
+WITH_WORKERS = False # tells if we include workers in armies
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
-DEBUG_OUR_CLUST = True # debugging output for our clustering
+DEBUG_OUR_CLUST = False # debugging output for our clustering
+DEBUG_GMM = False # debugging output for Gaussian mixtures clustering
 SHOW_NORMALIZE_OUTPUT = False # show normalized tables which are not uniform
 NUMBER_OF_TEST_GAMES = 50 # number of test games to use
 PARALLEL_COORDINATES_PLOT = False # should we plot units percentages?
-SCALE_UP_SPECIAL_UNITS = True # scale up special units in the list of percents
+SCALE_UP_SPECIAL_UNITS = False # scale up special units in the list of percents
 ADD_SMOOTH_EC_EC = 0.01 # smoothing
 LEARNED_EC_KNOWING_ETT = False # TODO
 WITH_SCORE_RATIO = True # use score ratio instead of just counting for units
@@ -55,6 +56,7 @@ if WITH_STATIC_DEFENSE:
 print >> sys.stderr, "WITH_WORKERS ",         WITH_WORKERS 
 print >> sys.stderr, "CSV_ARMIES_OUTPUT ",    CSV_ARMIES_OUTPUT 
 print >> sys.stderr, "DEBUG_OUR_CLUST ",      DEBUG_OUR_CLUST 
+print >> sys.stderr, "DEBUG_GMM ",            DEBUG_GMM
 print >> sys.stderr, "SHOW_NORMALIZE_OUTPUT ",SHOW_NORMALIZE_OUTPUT 
 print >> sys.stderr, "NUMBER_OF_TEST_GAMES ", NUMBER_OF_TEST_GAMES 
 print >> sys.stderr, "PARALLEL_COORDINATES_PLOT ", PARALLEL_COORDINATES_PLOT 
@@ -221,19 +223,19 @@ class ArmyCompositions:
     ut_by = copy.deepcopy(ut_by_race)
     ut_by['T'].pop(ut_by['T'].index('Terran Siege Tank Siege Mode'))
     special = { # list special units by race and their multipliers in the list of percents
-            'P': {'Protoss Observer': 100000,
-                'Protoss Arbiter': 0, #100000,
+            'P': {'Protoss Observer': 10000,
+                'Protoss Arbiter': 0, #10000,
                 'Protoss High Templar': 0,
                 'Protoss Dark Archon': 0,
                 'Protoss Shuttle': 0},
-            'T': {'Terran Science Vessel': 100000,
+            'T': {'Terran Science Vessel': 10000,
                 'Terran Siege Tank Tank Mode': 0,
                 'Terran Ghost': 0,
                 'Terran Dropship': 0},
             'Z': {'Zerg Queen': 0,
                 'Zerg Lurker': 0,
-                'Zerg Defiler': 0, #100000
-                'Zerg Overlord': 100000}#100000}
+                'Zerg Defiler': 0, #10000
+                'Zerg Overlord': 10000}#100000}
             }
 
     ac_by_race = {}
@@ -322,14 +324,14 @@ class ArmyCompositions:
         """ Computes ∏_i P(U_i|C=c) ∀ clusters c in C, returns {c: logprob} """
         d = {}
         for cluster in self.compositions:
-            d[cluster] = 1.0
+            d[cluster] = 0.0
             for i, unit_type in enumerate(ArmyCompositions.ut_by[self.race]):
-                d[cluster] *= self.P_unit_knowing_cluster[unit_type][cluster](percents_list[i])
+                d[cluster] += math.log(self.P_unit_knowing_cluster[unit_type][cluster](percents_list[i]))
         return d
 
 
     def prod_Ui_C(self, percents_list):
-        """ Computes ∏_i P(U_i|C=c) ∀ clusters c in C, returns {c: logprob} """
+        """ Computes ∏_i P(U_i|C=c) ∀ clusters c in C, returns {c: prob} """
         d = {}
         for cluster in self.compositions:
             d[cluster] = 1.0
@@ -351,7 +353,7 @@ class ArmyCompositions:
 
     def count(self, percents_list):
         """ Adds log probabilities of clusters for a given battle """
-        dist = ArmyCompositions.ac_by_race[race].prod_Ui_C(p_l) 
+        dist = ArmyCompositions.ac_by_race[race].d_prod_Ui_C(p_l) 
         for c, logprob in dist.iteritems():
             self.compo_count[c] = self.compo_count.get(c, 0) + logprob
     
@@ -493,7 +495,7 @@ class ArmyCompositionsGMM(ArmyCompositions):
         if n_components != 0:
             self.gmm = mixture.GMM(n_components=n_components, covariance_type='full')
         else:
-            self.gmm = [mixture.GMM(n_components=i, covariance_type='full') for i in range(3,11)]
+            self.gmm = [mixture.GMM(n_components=i, covariance_type=cv) for i in range(3,11) for cv in ['spherical', 'tied', 'diag', 'full']]
         self.compositions = range(n_components)
         self.n_units = len(ArmyCompositions.ut_by[race])
         self.race = race
@@ -530,6 +532,8 @@ class ArmyCompositionsGMM(ArmyCompositions):
             self.gmm = self.gmm[best_gmm]
         else:
             self.gmm.fit(self.data)
+        if DEBUG_GMM:
+            print >> sys.stderr, "n components:", len(self.gmm.means_), "cv:", self.gmm.covars_
         self.compositions = range(self.gmm.n_components)
                 
 
@@ -848,6 +852,7 @@ armies_battles_for_clust = {'P': percent_list(),
         'Z': percent_list()}
 battles_for_clustering = []
 fnamelist = []
+
 #ArmyCompositions('P')
 #ArmyCompositions('T')
 #ArmyCompositions('Z')
@@ -887,6 +892,12 @@ if __name__ == "__main__":
         fnamelist = [fna for fna in fnamelist]
         learngames = [fna for fna in fnamelist]
         testgames = []
+        if '-w' in sys.argv:
+            WITH_WORKERS = True
+        if '-s' in sys.argv:
+            WITH_STATIC_DEFENSE = True
+        if '-u' in sys.argv:
+            SCALE_UP_SPECIAL_UNITS = True
         if '-t' in sys.argv: # -t for tests
             if NUMBER_OF_TEST_GAMES > len(fnamelist):
                 print >> sys.stderr, "Number of test games %d > number of games %d" % (NUMBER_OF_TEST_GAMES, len(fnamelist))
