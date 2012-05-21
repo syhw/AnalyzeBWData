@@ -887,7 +887,7 @@ if __name__ == "__main__":
         testgames = []
         if '-t' in sys.argv: # -t for tests
             if NUMBER_OF_TEST_GAMES > len(fnamelist):
-                print >> sys.stderr, "Number of test games > number of games"
+                print >> sys.stderr, "Number of test games %d > number of games %d" % (NUMBER_OF_TEST_GAMES, len(fnamelist))
                 sys.exit(-1)
             i = 0
             random.seed(0) # no randomness, just sampling
