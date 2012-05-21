@@ -6,9 +6,10 @@
 #  - PCA fragmentation on the first principal component
 #  - PCA fragmentation on first few principal components
 #  - Linear Discriminant Analysis same as above
-#  - GMM EM (which distance function w.r.t. the 0 !!= 0.01 problem)
-#  - GMM DP (which distance function w.r.t. the 0 !!= 0.01 problem)
-#  - Latent Dirichlet Analysis
+#  - GMM EM (which distance function w.r.t. the 0 !!= 0.01 problem???)
+#  - GMM DP (which distance function w.r.t. the 0 !!= 0.01 problem???)
+#  - Latent Dirichlet Analysis TODO
+# see SCALE_UP_SPECIAL_UNITS / scale_up_special (de-linearize)
 
 import sys, os, pickle, copy, itertools, functools, math, random
 from collections import defaultdict
@@ -26,7 +27,7 @@ except:
 
 SCORES_REGRESSION = False # try to do battles scores regressions
 MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
-MAX_FORCES_RATIO = 1.2 # max differences between engaged forces
+MAX_FORCES_RATIO = 1.3 # max differences between engaged forces
 WITH_STATIC_DEFENSE = True # tells if we include static defense in armies TODO
 WITH_WORKERS = True # tells if we include workers in armies TODO
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
@@ -44,6 +45,7 @@ STATIC_DEFENSE_MULTIPLIER = 1.5 # how much to multiply static defense score by
 disc_width = 0.01 # width of bins in P(Unit_i | C)
 epsilon = 1.0e-6 # lowest not zero
 
+print >> sys.stderr, "args", sys.argv[1:]
 print >> sys.stderr, "SCORES_REGRESSION ",    SCORES_REGRESSION 
 print >> sys.stderr, "MIN_POP_ENGAGED ",      MIN_POP_ENGAGED 
 print >> sys.stderr, "MAX_FORCES_RATIO ",     MAX_FORCES_RATIO 
@@ -120,7 +122,7 @@ def extract_armies_battles(f):
             tmp = data_tools.parse_dicts(line, lambda x: int(x))
             # sometimes the observers are detected in the fight (their SCVs)
             tmp = obs.heuristics_remove_observers(tmp)
-            if len(tmp[0]) >= 2: # when a player killed observer's units...
+            if len(tmp[0]) == 2: # when a player killed observer's units...
                 attacks.append((int(line.split(',')[0]),tmp[0], tmp[1], tmp[2]))
     return attacks
 
