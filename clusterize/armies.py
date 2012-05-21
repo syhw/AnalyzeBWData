@@ -897,6 +897,8 @@ if __name__ == "__main__":
             WITH_STATIC_DEFENSE = True
         if '-u' in sys.argv:
             SCALE_UP_SPECIAL_UNITS = True
+        if '-r' in sys.argv:
+            WITH_SCORE_RATIO = False
         if '-t' in sys.argv: # -t for tests
             if NUMBER_OF_TEST_GAMES > len(fnamelist):
                 print >> sys.stderr, "Number of test games %d > number of games %d" % (NUMBER_OF_TEST_GAMES, len(fnamelist))
