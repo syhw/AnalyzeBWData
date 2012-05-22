@@ -791,6 +791,8 @@ class ArmyCompositionModel:
             our_efficiency = their_loss/(our_loss+0.0001)
             return min(2.0, our_efficiency/our_advantage)
 
+        # TODO TODO TODO TODO TODO Fix + Clean
+
         w, l = get_winner_loser(battle)
         w_a, l_a = battle[2+w], battle[2+l] # init (total) army scores
         w_s, l_s = battle[4+w], battle[4+l] # final scores
@@ -898,43 +900,23 @@ class ArmyCompositionModel:
                 self.W_knowing_Ccounter_ECnext[:,cn,ecn] /= sum(self.W_knowing_Ccounter_ECnext[:,cn,ecn])
 
         if PLOT_EC_KNOWING_ECNEXT:
-            from matplotlib.image import NonUniformImage
             fig = pl.figure()
             fig.suptitle('P(EC^{t}|EC^{t+1})')
             ax = fig.add_subplot(111)
-            K = len(self.EC_knowing_ECnext)
-            ##import matplotlib.cm as cm
-            #im = NonUniformImage(ax, interpolation='nearest', extent=(-0.5,K-0.5,-0.5,K-0.5))
-            #pl.colorbar(im)
-            ##ax.imshow(X, cmap=cm.jet, interpolation='nearest')
             im = pl.pcolor(self.EC_knowing_ECnext)
             pl.colorbar(im)
-            x = np.linspace(0, K-1, K)
-            y = np.linspace(0, K-1, K)
-            #im.set_data(x, y, self.EC_knowing_ECnext)
             ax.images.append(im)
-            #ax.set_xlim(-0.5,K-0.5)
-            #ax.set_ylim(-0.5,K-0.5)
             ax.set_ylabel("EC^{t}")
             ax.set_xlabel("EC^{t+1}")
             pl.savefig(self.erace+"_EC_knowing_ECnext.png")
 
         if PLOT_W_KNOWING_C_EC:
-            from matplotlib.image import NonUniformImage
             fig = pl.figure()
             fig.suptitle('P(win|C,EC)')
             ax = fig.add_subplot(111)
-            K = self.W_knowing_Ccounter_ECnext.shape[1]
-            KK = self.W_knowing_Ccounter_ECnext.shape[2]
-            #im = NonUniformImage(ax, interpolation='nearest', extent=(-0.5,K-0.5,-0.5,KK-0.5))
             im = pl.pcolor(self.W_knowing_Ccounter_ECnext[1,:,:])
             pl.colorbar(im)
-            x = np.linspace(0, K-1, K)
-            y = np.linspace(0, KK-1, KK)
-            #im.set_data(y, x, self.W_knowing_Ccounter_ECnext[1,:,:])
             ax.images.append(im)
-            #ax.set_ylim(-0.5,K-0.5)
-            #ax.set_xlim(-0.5,KK-0.5)
             ax.set_ylabel("C")
             ax.set_xlabel("EC")
             pl.savefig(self.erace+"_W_knowing_C_EC.png")
@@ -1236,7 +1218,7 @@ if __name__ == "__main__":
             for battle in battles_for_clustering:
                 # (army_p1, army_p2, score_before_p1, score_before_p2,
                 # score_after_p1, score_after_p2, players_races)
-                armies_compositions_models[mu].train(battle, True)
+                armies_compositions_models[mu].train(battle)
             armies_compositions_models[mu].normalize()
             print mu, "trained on", armies_compositions_models[mu].n_train, "battles"
 
