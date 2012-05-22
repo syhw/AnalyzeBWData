@@ -28,12 +28,12 @@ except:
 
 SCORES_REGRESSION = False # try to do battles scores regressions
 MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
-MAX_FORCES_RATIO = 1.3 # max differences between engaged forces
+MAX_FORCES_RATIO = 1.2 # max differences between engaged forces
 WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
 WITH_WORKERS = False # tells if we include workers in armies
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
 DEBUG_OUR_CLUST = False # debugging output for our clustering
-DEBUG_GMM = True # debugging output for Gaussian mixtures clustering
+DEBUG_GMM = False # debugging output for Gaussian mixtures clustering
 SHOW_NORMALIZE_OUTPUT = False # show normalized tables which are not uniform
 NUMBER_OF_TEST_GAMES = 50 # number of test games to use
 PARALLEL_COORDINATES_PLOT = False # should we plot units percentages?
@@ -955,7 +955,7 @@ class ArmyCompositionModel:
                 #ax.set_ylabel('P(EC^{t+1}|ETT)')
                 ax.set_ylabel('P(EC)')
                 ax.set_xlabel('EC')
-                ax.bar(ind, np.log(self.ECnext_knowing_ETT[:,i]), width, color='r')
+                ax.bar(ind, np.log(1+self.ECnext_knowing_ETT[:,i]), width, color='r')
                 #ax.bar(ind, self.ECnext_knowing_ETT[:,i], width, color='r')
                 fig.savefig('plots_tt/'+self.erace+'_ECnext_knowing_ETT_'+str(i)+'.png')
 
@@ -1139,7 +1139,8 @@ if __name__ == "__main__":
                 if fnamelist[r] not in testgames:
                     i += 1
                     testgames.append(fnamelist[r])
-                    learngames.remove(fnamelist[r])
+                    if NUMBER_OF_TEST_GAMES > len(fnamelist)*2: # TODO TODO REMOVE
+                        learngames.remove(fnamelist[r])
                 r = random.randint(0,len(fnamelist)-1)
 
         print "learning from", len(learngames), "games"
@@ -1223,6 +1224,7 @@ if __name__ == "__main__":
             print mu, "trained on", armies_compositions_models[mu].n_train, "battles"
 
 
+
         if '-t' in sys.argv:
             print "testing from", len(testgames), "games"
             test_battles = []
@@ -1246,19 +1248,41 @@ if __name__ == "__main__":
                     score_simple_outcome_predictor += 1
 
                 ### outcome prediction taking clusters into account
-                #good = False
+                good1 = False
+                good2 = False
+                good3 = False
+                good4 = False
                 mu = battle[-1][0] + 'v' + battle[-1][1]
                 if armies_compositions_models[mu].winner_battle_C_EC_only(battle) == get_winner_loser(battle)[0]:
                     cluster_outcome_predictor += 1
+                    good1 = True
                 if armies_compositions_models[mu].winner_battle_C_EC_only(battle, True) == get_winner_loser(battle)[0]:
                     most_prob_cluster_outcome_predictor += 1
+                    good2 = True
                 if armies_compositions_models[mu].winner_battle(battle) == get_winner_loser(battle)[0]:
                     score_cluster_outcome_predictor += 1
+                    good3 = True
                 if armies_compositions_models[mu].winner_battle(battle, True) == get_winner_loser(battle)[0]:
                     score_most_prob_outcome_predictor += 1
-
-                #if not good:
-                #    mu2 = battle[-1][1] + 'v' + battle[-1][0]
+                    good4 = True
+#
+#                if not good1 or not good2 or not good3 or not good4:
+#                mu2 = battle[-1][1] + 'v' + battle[-1][0]
+#                print mu
+#                print mu2
+#                print armies_compositions_models
+#                races = {}
+#                races[0] = battle[10][1]
+#                races[1] = battle[10][0]
+#                b = (battle[1], battle[0], battle[3], battle[2], battle[5], battle[4], battle[7], battle[6], battle[9], battle[8], races)
+#                if (not good1) and (armies_compositions_models[mu2].winner_battle_C_EC_only(b) == get_winner_loser(b)[0]):
+#                    cluster_outcome_predictor += 1
+#                if (not good2) and (armies_compositions_models[mu2].winner_battle_C_EC_only(b, True) == get_winner_loser(b)[0]):
+#                    most_prob_cluster_outcome_predictor += 1
+#                if (not good3) and (armies_compositions_models[mu2].winner_battle(b) == get_winner_loser(b)[0]):
+#                    score_cluster_outcome_predictor += 1
+#                if (not good4) and (armies_compositions_models[mu2].winner_battle(b, True) == get_winner_loser(b)[0]):
+#                    score_most_prob_outcome_predictor += 1
 
             print "simple outcome predictor performance:", score_simple_outcome_predictor*1.0/len(test_battles), ':', score_simple_outcome_predictor, '/', len(test_battles)
             print "cluster only outcome predictor performance:", cluster_outcome_predictor*1.0/len(test_battles), ':', cluster_outcome_predictor, '/', len(test_battles)
