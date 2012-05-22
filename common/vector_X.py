@@ -1,3 +1,5 @@
+from common.common_tools import memoize
+
 class vector_X:
     """ 
     an object created with a matchup and showing:
@@ -25,6 +27,11 @@ class vector_X:
         self.vector_X = []
         for line in f:
             self.vector_X.append(set(map(int, line.rstrip(' \n').split(' '))))
+
+
+    @memoize
+    def index_enum(self, building):
+        return self.enum.index(building)
 
         
 if __name__ == "__main__":

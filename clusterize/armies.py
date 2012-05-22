@@ -12,6 +12,7 @@
 # see SCALE_UP_SPECIAL_UNITS / scale_up_special (de-linearize)
 
 import sys, os, pickle, copy, itertools, functools, math, random
+import pylab as pl
 from collections import defaultdict
 from common import data_tools
 from common import unit_types
@@ -32,19 +33,22 @@ WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
 WITH_WORKERS = False # tells if we include workers in armies
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
 DEBUG_OUR_CLUST = False # debugging output for our clustering
-DEBUG_GMM = False # debugging output for Gaussian mixtures clustering
+DEBUG_GMM = True # debugging output for Gaussian mixtures clustering
 SHOW_NORMALIZE_OUTPUT = False # show normalized tables which are not uniform
 NUMBER_OF_TEST_GAMES = 50 # number of test games to use
 PARALLEL_COORDINATES_PLOT = False # should we plot units percentages?
 SCALE_UP_SPECIAL_UNITS = False # scale up special units in the list of percents
 ADD_SMOOTH_EC_EC = 0.01 # smoothing
-LEARNED_EC_KNOWING_ETT = False # TODO
+LEARNED_EC_KNOWING_ETT = True # should we learn P(EC^{t+1}|ETT)? False not impl
 WITH_SCORE_RATIO = True # use score ratio instead of just counting for units
 WITH_STATE = True # use state, and so P(EC^{t+1}|TT) and P(EC|EC^{t+1})
-SECONDS_BEFORE = 30 # number of seconds for between t and t+1
+SECONDS_BEFORE = 120 # number of seconds for between t and t+1
 ADD_SMOOTH_EC_TT = 0.01
 ADD_SMOOTH_C_EC = 0.01
 STATIC_DEFENSE_MULTIPLIER = 1.5 # how much to multiply static defense score by
+PLOT_EC_KNOWING_ECNEXT = True
+PLOT_W_KNOWING_C_EC = True
+PLOT_ECNEXT_KNOWING_ETT = False
 disc_width = 0.01 # width of bins in P(Unit_i | C)
 epsilon = 1.0e-6 # lowest not zero
 
@@ -146,7 +150,10 @@ def extract_armies_battles(f):
                     buildings = {}
                     for pl in tmp[0]:
                         buildings[pl] = st.get_buildings(pl)
-                    attacks.append((int(line.split(',')[0]),tmp[0], tmp[1], tmp[2], buildings))
+                    military_units = {}
+                    for pl in tmp[0]:
+                        military_units[pl] = st.get_military(pl)
+                    attacks.append((int(line.split(',')[0]),tmp[0], tmp[1], tmp[2], buildings, military_units))
                 else:
                     attacks.append((int(line.split(',')[0]),tmp[0], tmp[1], tmp[2]))
     return attacks
@@ -204,15 +211,28 @@ def format_battle_for_clust_adv(players_races, armies_battle):
         # these two loops just for Dark Archon's mind controlled armies
         for k in compo[p1]:
             if k[0] != players_races[p1]:
-                return [], [], [], [], [], [], {}
+                if WITH_STATE:
+                    return [], [], [], [], [], [], set(), set(), [], [], {}
+                else:
+                    return [], [], [], [], [], [], {}
         for k in compo[p2]:
             if k[0] != players_races[p2]:
-                return [], [], [], [], [], [], {}
+                if WITH_STATE:
+                    return [], [], [], [], [], [], set(), set(), [], [], {}
+                else:
+                    return [], [], [], [], [], [], {}
         # /these two loops just for Dark Archon's mind controlled armies
         score_after = score_units(armies_battle[2])
-        return compo[p1], compo[p2], score_before[p1], score_before[p2], score_after[p1], score_after[p2], armies_battle[-1][p1], armies_battle[-1][p2], races
+        if WITH_STATE:
+            previous_compo = to_ratio(armies_battle[-1])
+            return compo[p1], compo[p2], score_before[p1], score_before[p2], score_after[p1], score_after[p2], armies_battle[-2][p1], armies_battle[-2][p2], previous_compo[p1], previous_compo[p2], races
+        else:
+            return compo[p1], compo[p2], score_before[p1], score_before[p2], score_after[p1], score_after[p2], races
     else:
-        return [], [], [], [], [], [], set(), set(), {}
+        if WITH_STATE:
+            return [], [], [], [], [], [], set(), set(), [], [], {}
+        else:
+            return [], [], [], [], [], [], {}
 
 
 def format_battle_for_clust(players_races, armies_battle):
@@ -513,6 +533,37 @@ class ArmyCompositionsIsomap(ArmyCompositions):
         self.iso.fit(self.data)
 
 
+class ArmyCompositionsKmeans(ArmyCompositions):
+    def __init__(self, race, n_components):
+        from sklearn import cluster
+        self.km = cluster.KMeans(k=n_components, n_jobs=4)
+        self.compositions = range(n_components)
+        self.n_units = len(ArmyCompositions.ut_by[race])
+        self.race = race
+        self.data = []
+        self.register()
+
+
+    def d_prod_Ui_C(self, percents_list):
+        return dict(zip(self.compositions, self.prod_Ui_C(percents_list)))
+
+
+    def prod_Ui_C(self, percents_list):
+        tmp = np.array([0.0 for i in self.compositions])
+        tmp[self.km.predict(np.array([percents_list]))] = 1.0
+        return np.array(tmp)
+
+
+    def count(self, p_l):
+        self.data.append(p_l)
+
+
+    def prune(self):
+        """ Fit the KMeans. """
+        self.data = np.array(self.data)
+        self.km.fit(self.data)
+
+
 class ArmyCompositionsGMM(ArmyCompositions):
     def __init__(self, race, n_components=0):
         from sklearn import mixture
@@ -556,9 +607,43 @@ class ArmyCompositionsGMM(ArmyCompositions):
             self.gmm = self.gmm[best_gmm]
         else:
             self.gmm.fit(self.data)
+        self.compositions = range(self.gmm.n_components)
         if DEBUG_GMM:
             print >> sys.stderr, "n components:", len(self.gmm.means_), "cv:", self.gmm.covars_
-        self.compositions = range(self.gmm.n_components)
+            #print >> sys.stderr, self.gmm.predict(self.data)
+            from sklearn import decomposition, lda, manifold
+            X_pca = decomposition.RandomizedPCA(n_components=2).fit_transform(self.data)
+            y = self.gmm.predict(self.data)
+            n = len(self.data)
+            plot_embedding(n, y, X_pca, 
+                    'GMM_PCA_'+self.race, "PCA projection of the clusters")
+            #data2 = self.data.copy()
+            #data2.flat[::self.data.shape[1] + 1] += 0.01
+            #X_lda = lda.LDA(n_components=2).fit_transform(data2, y)
+            #plot_embedding(n, y, X_lda, 
+            #        'GMM_LDA_'+self.race, "LDA projection of the clusters")
+            X_iso = manifold.Isomap(n_components=2).fit_transform(self.data)
+            plot_embedding(n, y, X_iso, 
+                    'GMM_ISO_'+self.race, "Isomap projection of the clusters")
+            X_lle = manifold.LocallyLinearEmbedding(n_components=2, method='standard').fit_transform(self.data)
+            plot_embedding(n, y, X_lle, 
+                    'GMM_LLE_'+self.race, "Locally Linear Embedding of the clusters")
+
+
+
+def plot_embedding(n, y, X, save_name, title=None):
+    x_min, x_max = np.min(X, 0), np.max(X, 0)
+    X = (X - x_min) / (x_max - x_min)
+    pl.figure()
+    ax = pl.subplot(111)
+    for i in range(n):
+        pl.text(X[i, 0], X[i, 1], str(y[i]),
+                color=pl.cm.Set1(y[i] / 10.),
+                fontdict={'weight': 'bold', 'size': 11})
+    pl.xticks([]), pl.yticks([])
+    if title is not None:
+        pl.title(title)
+    pl.savefig(save_name+'.png')
                 
 
 class ArmyCompositionsDPGMM(ArmyCompositions):
@@ -680,8 +765,10 @@ class ArmyCompositionModel:
         # P(EC^{t+1}|ETT) possible EC under ETT _OR_ learned correlations
         if LEARNED_EC_KNOWING_ETT:
             self.ECnext_knowing_ETT = np.ndarray(shape=(len(eac.compositions),
-                len(self.tech_trees)), dtype='float')
+                len(self.tech_trees.vector_X)), dtype='float')
             self.ECnext_knowing_ETT.fill(ADD_SMOOTH_EC_TT)
+        else:
+            pass
         # else -> function 1.0 for ec compatibles with ett, else 0.0
 
         # P(Win|C_counter,EC^{t+1}) learned correlations
@@ -723,9 +810,9 @@ class ArmyCompositionModel:
             for c, p in enumerate(distrib_C_us):
                 for ec, ep in enumerate(distrib_C_them):
                     if not with_efficiency:
-                        self.W_knowing_Ccounter_ECnext[1][c][ec] += p*ep
+                        self.W_knowing_Ccounter_ECnext[1,c,ec] += p*ep
                     else:
-                        self.W_knowing_Ccounter_ECnext[1][c][ec] += p*ep*winner_efficiency
+                        self.W_knowing_Ccounter_ECnext[1,c,ec] += p*ep*winner_efficiency
 #                    win_total += p*ep*winner_efficiency
 #            print "winner, added:", win_total
 
@@ -735,30 +822,52 @@ class ArmyCompositionModel:
             for c, p in enumerate(distrib_C_us):
                 for ec, ep in enumerate(distrib_C_them):
                     if not with_efficiency:
-                        self.W_knowing_Ccounter_ECnext[0][c][ec] += p*ep
+                        self.W_knowing_Ccounter_ECnext[0,c,ec] += p*ep
                     else:
-                        self.W_knowing_Ccounter_ECnext[0][c][ec] += p*ep*winner_efficiency
+                        self.W_knowing_Ccounter_ECnext[0,c,ec] += p*ep*winner_efficiency
 #                    lose_total += p*ep*winner_efficiency
 #            print "loser, added:", lose_total
 #        print "================================"
 
 
     def train_Ctplus1_knowing_TT(self, battle):
+        def learn_for_p(player):
+            distrib_C = self.prod_EU_EC(percent_list.dict_to_list(battle[player], battle[-1][player]))
+            tt_to_count = []
+            for i, tt in enumerate(self.tech_trees.vector_X):
+                if len(tt) >= len(battle[6+player]):
+                    good = True
+                    for building in battle[6+player]: # battle[6+player] = 
+                                                      # tech_tree[player]
+                        if self.tech_trees.index_enum(building) not in tt:
+                            good = False
+                            break
+                    if good:
+                        tt_to_count.append(i)
+            for c, p in enumerate(distrib_C):
+                for i in tt_to_count:
+                    self.ECnext_knowing_ETT[c,i] += p
+
         p1r, p2r = battle[-1][0], battle[-1][1]
         if p1r == self.erace:
-            distrib_C_p1 = self.prod_EU_EC(percent_list.dict_to_list(battle[0], p1r))
-            print self.tech_trees.enum
-            print battle[-3]
+            learn_for_p(0)
         if p2r == self.erace:
-            distrib_C_p2 = self.prod_EU_EC(percent_list.dict_to_list(battle[1], p2r))
-            print self.tech_trees.enum
-            print battle[-2]
-        #self.ECnext_knowing_ETT
-        pass
+            learn_for_p(1)
 
 
     def train_ECtplus1_knowing_ECt(self, battle):
-        pass
+        def learn_for_p(player):
+            distrib_ECtplus1 = self.prod_EU_EC(percent_list.dict_to_list(battle[player], battle[-1][player]))
+            distrib_ECt = self.prod_EU_EC(percent_list.dict_to_list(battle[8+player], battle[-1][player]))
+            for ect, p in enumerate(distrib_ECt):
+                for ectplus1, pp in enumerate(distrib_ECtplus1):
+                    self.EC_knowing_ECnext[ect,ectplus1] += p*pp
+
+        p1r, p2r = battle[-1][0], battle[-1][1]
+        if p1r == self.erace:
+            learn_for_p(0)
+        if p2r == self.erace:
+            learn_for_p(1)
 
 
     def train(self, battle, with_efficiency=False):
@@ -766,7 +875,8 @@ class ArmyCompositionModel:
         ### *********** train P(W|C,EC) ***********
         self.train_W_knowing_C_EC(battle, with_efficiency)
         ### *********** train P(C^{t+1}|TT) ***********
-        self.train_Ctplus1_knowing_TT(battle)
+        if LEARNED_EC_KNOWING_ETT:
+            self.train_Ctplus1_knowing_TT(battle)
         ### *********** train P(EC^t|EC^{t+1}) ***********
         self.train_ECtplus1_knowing_ECt(battle)
 
@@ -774,6 +884,7 @@ class ArmyCompositionModel:
     def normalize(self):
         for ecn in range(self.EC_knowing_ECnext.shape[1]):
             self.EC_knowing_ECnext[:,ecn] /= sum(self.EC_knowing_ECnext[:,ecn])
+
         if LEARNED_EC_KNOWING_ETT:
             for ett in range(self.ECnext_knowing_ETT.shape[1]):
                 self.ECnext_knowing_ETT[:,ett] /= sum(self.ECnext_knowing_ETT[:,ett])
@@ -785,6 +896,87 @@ class ArmyCompositionModel:
         for cn in range(self.W_knowing_Ccounter_ECnext.shape[1]):
             for ecn in range(self.W_knowing_Ccounter_ECnext.shape[2]):
                 self.W_knowing_Ccounter_ECnext[:,cn,ecn] /= sum(self.W_knowing_Ccounter_ECnext[:,cn,ecn])
+
+        if PLOT_EC_KNOWING_ECNEXT:
+            from matplotlib.image import NonUniformImage
+            fig = pl.figure()
+            fig.suptitle('P(EC^{t}|EC^{t+1})')
+            ax = fig.add_subplot(111)
+            K = len(self.EC_knowing_ECnext)
+            ##import matplotlib.cm as cm
+            #im = NonUniformImage(ax, interpolation='nearest', extent=(-0.5,K-0.5,-0.5,K-0.5))
+            #pl.colorbar(im)
+            ##ax.imshow(X, cmap=cm.jet, interpolation='nearest')
+            im = pl.pcolor(self.EC_knowing_ECnext)
+            pl.colorbar(im)
+            x = np.linspace(0, K-1, K)
+            y = np.linspace(0, K-1, K)
+            #im.set_data(x, y, self.EC_knowing_ECnext)
+            ax.images.append(im)
+            #ax.set_xlim(-0.5,K-0.5)
+            #ax.set_ylim(-0.5,K-0.5)
+            ax.set_ylabel("EC^{t}")
+            ax.set_xlabel("EC^{t+1}")
+            pl.savefig(self.erace+"_EC_knowing_ECnext.png")
+
+        if PLOT_W_KNOWING_C_EC:
+            from matplotlib.image import NonUniformImage
+            fig = pl.figure()
+            fig.suptitle('P(win|C,EC)')
+            ax = fig.add_subplot(111)
+            K = self.W_knowing_Ccounter_ECnext.shape[1]
+            KK = self.W_knowing_Ccounter_ECnext.shape[2]
+            #im = NonUniformImage(ax, interpolation='nearest', extent=(-0.5,K-0.5,-0.5,KK-0.5))
+            im = pl.pcolor(self.W_knowing_Ccounter_ECnext[1,:,:])
+            pl.colorbar(im)
+            x = np.linspace(0, K-1, K)
+            y = np.linspace(0, KK-1, KK)
+            #im.set_data(y, x, self.W_knowing_Ccounter_ECnext[1,:,:])
+            ax.images.append(im)
+            #ax.set_ylim(-0.5,K-0.5)
+            #ax.set_xlim(-0.5,KK-0.5)
+            ax.set_ylabel("C")
+            ax.set_xlabel("EC")
+            pl.savefig(self.erace+"_W_knowing_C_EC.png")
+            
+        if PLOT_ECNEXT_KNOWING_ETT:
+            ### TODO review this plotting
+#            from matplotlib.image import NonUniformImage
+#            fig = pl.figure()
+#            fig.suptitle('P(EC^{t+1}|ETT^{t})')
+#            ax = fig.add_subplot(111)
+#            K = len(self.ECnext_knowing_ETT)
+#            V = len(self.ECnext_knowing_ETT[0])
+#            print self.ECnext_knowing_ETT[0]
+#            print self.ECnext_knowing_ETT[1]
+#            print self.ECnext_knowing_ETT[2]
+#            im = NonUniformImage(ax, interpolation='nearest', extent=(-0.5,V-0.5,-0.5,K-0.5))
+#            x = np.linspace(0, K-1, K)
+#            y = np.linspace(0, V-1, V)
+#            #z = np.array([self.EC_knowing_ECnext[int(i),int(j)] for i in x for j in y])
+#            im.set_data(y, x, np.log(self.ECnext_knowing_ETT))
+#            ax.images.append(im)
+#            ax.set_xlim(-0.5,V-0.5)
+#            ax.set_ylim(-0.5,K-0.5)
+#            ax.set_ylabel("EC^{t+1}")
+#            ax.set_xlabel("ETT^{t}")
+#            pl.savefig(self.erace+"_ECnext_knowing_ETT.png")
+            #for i in range(self.ECnext_knowing_ETT.shape[0]):
+            width = 0.5
+            for i in range(self.ECnext_knowing_ETT.shape[1]):
+                fig = pl.figure()
+                #fig.suptitle('P(EC^{t+1}='+i+'|ETT)')
+                fig.suptitle('P(EC^{t+1}|ETT^{t}='+str(i)+')')
+                #s = round(math.sqrt(self.ECnext_knowing_ETT.shape[1])+0.5)
+                ax = fig.add_subplot(111)
+                ind = np.arange(len(self.ECnext_knowing_ETT))
+                #ax.set_ylabel('P(EC^{t+1}|ETT)')
+                ax.set_ylabel('P(EC)')
+                ax.set_xlabel('EC')
+                ax.bar(ind, np.log(self.ECnext_knowing_ETT[:,i]), width, color='r')
+                #ax.bar(ind, self.ECnext_knowing_ETT[:,i], width, color='r')
+                fig.savefig('plots_tt/'+self.erace+'_ECnext_knowing_ETT_'+str(i)+'.png')
+
         if SHOW_NORMALIZE_OUTPUT:
             print "U knowing C_final", self.U_knowing_Cfinal
             print "==================================="
@@ -920,6 +1112,10 @@ fnamelist = []
 #ArmyCompositionsIsomap('T')
 #ArmyCompositionsIsomap('Z')
 
+#ArmyCompositionsKmeans('P', 6)
+#ArmyCompositionsKmeans('T', 6)
+#ArmyCompositionsKmeans('Z', 6)
+
 ArmyCompositionsGMM('P')
 ArmyCompositionsGMM('T')
 ArmyCompositionsGMM('Z')
@@ -929,7 +1125,6 @@ ArmyCompositionsGMM('Z')
 #ArmyCompositionsDPGMM('Z', 6)
 
 armies_compositions_models = {}
-tech_trees = {}
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
@@ -993,7 +1188,7 @@ if __name__ == "__main__":
             ### Sort armies by race and put inside battles_for_clust
             for b in battles_c:
                 if WITH_STATE:
-                    assert(len(b) == 9) # enforce format
+                    assert(len(b) == 11) # enforce format
                 else:
                     assert(len(b) == 7) # enforce format
                 for race in armies_battles_for_clust.iterkeys():
@@ -1041,7 +1236,7 @@ if __name__ == "__main__":
             for battle in battles_for_clustering:
                 # (army_p1, army_p2, score_before_p1, score_before_p2,
                 # score_after_p1, score_after_p2, players_races)
-                armies_compositions_models[mu].train(battle)
+                armies_compositions_models[mu].train(battle, True)
             armies_compositions_models[mu].normalize()
             print mu, "trained on", armies_compositions_models[mu].n_train, "battles"
 
@@ -1144,7 +1339,6 @@ if __name__ == "__main__":
             armies_battles_regr_fscaled = data_tools.features_scaling(armies_battles_regr_raw)
             from sklearn import linear_model
 
-            import pylab as pl
             from sklearn.decomposition import PCA, FastICA
             from sklearn import cross_validation
             from sklearn import metrics

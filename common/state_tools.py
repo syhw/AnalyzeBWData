@@ -203,5 +203,12 @@ class GameState:
                 else:
                     r.add(un)
         return r
-
+    
+    def get_military(self, player):
+        r = {}
+        for u in self.tracked_units.itervalues():
+            if u.player == player and\
+                    u.name in unit_types.military_set:
+                r[u.name] = r.get(u.name, 0) + 1
+        return r
 
