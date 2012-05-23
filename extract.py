@@ -98,6 +98,9 @@ for mu, v in d.iteritems():
             tmp[score][map_mu[mu]+column] = str(vvv)
 
 for line in tmp:
+    print str(int(round(sum(map(int, line[::2]))*2.0/len(line)))) + ' & ' + str(int(round(sum(map(int, line[1::2]))*2.0/len(line))))
+
+for line in tmp:
     print template + ' & '.join(line)
 
 
