@@ -28,14 +28,14 @@ except:
 
 SCORES_REGRESSION = False # try to do battles scores regressions
 MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
-MAX_FORCES_RATIO = 1.2 # max differences between engaged forces
+MAX_FORCES_RATIO = 1.4 # max differences between engaged forces
 WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
 WITH_WORKERS = False # tells if we include workers in armies
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
 DEBUG_OUR_CLUST = False # debugging output for our clustering
 DEBUG_GMM = False # debugging output for Gaussian mixtures clustering
 SHOW_NORMALIZE_OUTPUT = False # show normalized tables which are not uniform
-NUMBER_OF_TEST_GAMES = 50 # number of test games to use
+NUMBER_OF_TEST_GAMES = 30 # number of test games to use
 PARALLEL_COORDINATES_PLOT = False # should we plot units percentages?
 SCALE_UP_SPECIAL_UNITS = False # scale up special units in the list of percents
 ADD_SMOOTH_EC_EC = 0.01 # smoothing
@@ -562,6 +562,55 @@ class ArmyCompositionsKmeans(ArmyCompositions):
         """ Fit the KMeans. """
         self.data = np.array(self.data)
         self.km.fit(self.data)
+
+
+import gensim
+PERCENTS_TO_INT = False
+class ArmyCompositionsLDA(ArmyCompositions):
+    def __init__(self, race, n_components):
+        self.lda = None
+        self.compositions = range(n_components)
+        self.n_units = len(ArmyCompositions.ut_by[race])
+        self.race = race
+        self.data = []
+        self.register()
+
+
+    def d_prod_Ui_C(self, percents_list):
+        if PERCENTS_TO_INT:
+            percents_list = [int(x*1000) for x in percents_list]
+        tmp = self.lda[zip(range(self.n_units), percents_list)]
+        return dict(tmp)
+
+
+    def prod_Ui_C(self, percents_list):
+        if PERCENTS_TO_INT:
+            percents_list = [int(x*1000) for x in percents_list]
+        tmp = self.lda[zip(range(self.n_units), percents_list)]
+        return [t[1] for t in tmp]
+
+
+    def count(self, p_l):
+        if PERCENTS_TO_INT:
+            self.data.append([int(x*1000) for x in p_l])
+        else:
+            self.data.append(p_l)
+
+
+    def prune(self):
+        """ Fit the LDA """
+        self.data = [zip(range(self.n_units), line) for line in self.data]
+        #print len(self.data[0])
+        #print self.n_units
+        #print ArmyCompositions.ut_by[self.race]
+        #print self.data
+        id2word = dict(zip(range(self.n_units), ArmyCompositions.ut_by[self.race]))
+        self.lda = gensim.models.ldamodel.LdaModel(corpus=self.data, id2word=id2word, num_topics=len(self.compositions), update_every=0, passes=100)
+        print self.lda
+        for compo in self.compositions:
+            print self.lda.print_topic(compo)
+        #print self.lda.print_topics(len(self.compositions))
+
 
 
 class ArmyCompositionsGMM(ArmyCompositions):
@@ -1098,13 +1147,17 @@ fnamelist = []
 #ArmyCompositionsKmeans('T', 6)
 #ArmyCompositionsKmeans('Z', 6)
 
-ArmyCompositionsGMM('P')
-ArmyCompositionsGMM('T')
-ArmyCompositionsGMM('Z')
+#ArmyCompositionsGMM('P')
+#ArmyCompositionsGMM('T')
+#ArmyCompositionsGMM('Z')
 
 #ArmyCompositionsDPGMM('P', 6)
 #ArmyCompositionsDPGMM('T', 6)
 #ArmyCompositionsDPGMM('Z', 6)
+
+ArmyCompositionsLDA('P', 6)
+ArmyCompositionsLDA('T', 6)
+ArmyCompositionsLDA('Z', 6)
 
 armies_compositions_models = {}
 
