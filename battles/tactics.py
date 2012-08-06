@@ -1203,7 +1203,22 @@ class TacticalModel:
             print "Good how predictions:", good*1.0/total, ":", good, "/", total
 
 
+def usage():
+    return """
+    python battles/tactics.py -d data/ICCUPgosu/PvP [-p] [-s]
+    or
+    python battles/tactics.py data/ICCUPgosu/PvP/*.rgd [-p] [-s]
+    -d for directory
+    -p for plotting
+    -s for serializing results
+    """
+
+
 if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print >> sys.stderr, usage()
+        sys.exit(-1)
+
     # serialize?
     fnamelist = []
     if sys.argv[1] == '-d':

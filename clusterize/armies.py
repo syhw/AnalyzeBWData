@@ -35,7 +35,8 @@ CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
 DEBUG_OUR_CLUST = False # debugging output for our clustering
 DEBUG_GMM = False # debugging output for Gaussian mixtures clustering
 SHOW_NORMALIZE_OUTPUT = False # show normalized tables which are not uniform
-NUMBER_OF_TEST_GAMES = 30 # number of test games to use
+SERIALIZE_GMM = True
+NUMBER_OF_TEST_GAMES = 0 # number of test games to use
 PARALLEL_COORDINATES_PLOT = False # should we plot units percentages?
 SCALE_UP_SPECIAL_UNITS = False # scale up special units in the list of percents
 ADD_SMOOTH_EC_EC = 0.01 # smoothing
@@ -619,7 +620,8 @@ class ArmyCompositionsGMM(ArmyCompositions):
         if n_components != 0:
             self.gmm = mixture.GMM(n_components=n_components, covariance_type='full')
         else:
-            self.gmm = [mixture.GMM(n_components=i, covariance_type=cv) for i in range(3,11) for cv in ['spherical', 'tied', 'diag', 'full']]
+            self.gmm = [mixture.GMM(n_components=i, covariance_type='full') for i in range(3,13)]
+            #self.gmm = [mixture.GMM(n_components=i, covariance_type=cv) for i in range(3,11) for cv in ['spherical', 'tied', 'diag', 'full']]
         self.compositions = range(n_components)
         self.n_units = len(ArmyCompositions.ut_by[race])
         self.race = race
@@ -656,6 +658,30 @@ class ArmyCompositionsGMM(ArmyCompositions):
             self.gmm = self.gmm[best_gmm]
         else:
             self.gmm.fit(self.data)
+
+        if SERIALIZE_GMM:
+            wf = open(self.race + '.gmm', 'w')
+            tmpstr = "n compo: "
+            tmpstr += str(self.gmm.n_components) + '\n'
+            tmpstr += "n features: "
+            tmpstr += str(len(self.gmm.means_[0])) + '\n'
+            tmpstr += "in order:\n" 
+            tmpstr += ";".join(ArmyCompositions.ut_by[self.race]) + '\n'
+            tmpstr += "means:\n"
+            for comp in range(len(self.gmm.means_)):
+                tmpstr += "component" + str(comp) + '\n'
+                tmpstr += ";".join(map(str, self.gmm.means_[comp])) + '\n'
+            tmpstr += "covars:\n"
+            for comp in range(len(self.gmm.covars_)):
+                tmpstr += "component" + str(comp) + '\n'
+                for feat in range(len(self.gmm.covars_[0])):
+                    tmpstr += "feature" + str(feat) + '\n'
+                    tmpstr += ";".join(map(str, self.gmm.covars_[comp][feat])) + '\n'
+            tmpstr += self.gmm.covars_.__repr__()
+            tmpstr += "weights:\n"
+            tmpstr += ";".join(map(str, self.gmm.weights_))
+            wf.write(tmpstr)
+
         self.compositions = range(self.gmm.n_components)
         if DEBUG_GMM:
             print >> sys.stderr, "n components:", len(self.gmm.means_), "cv:", self.gmm.covars_
@@ -1147,17 +1173,17 @@ fnamelist = []
 #ArmyCompositionsKmeans('T', 6)
 #ArmyCompositionsKmeans('Z', 6)
 
-#ArmyCompositionsGMM('P')
-#ArmyCompositionsGMM('T')
-#ArmyCompositionsGMM('Z')
+ArmyCompositionsGMM('P')
+ArmyCompositionsGMM('T')
+ArmyCompositionsGMM('Z')
 
 #ArmyCompositionsDPGMM('P', 6)
 #ArmyCompositionsDPGMM('T', 6)
 #ArmyCompositionsDPGMM('Z', 6)
 
-ArmyCompositionsLDA('P', 6)
-ArmyCompositionsLDA('T', 6)
-ArmyCompositionsLDA('Z', 6)
+#ArmyCompositionsLDA('P', 6)
+#ArmyCompositionsLDA('T', 6)
+#ArmyCompositionsLDA('Z', 6)
 
 armies_compositions_models = {}
 
@@ -1318,7 +1344,7 @@ if __name__ == "__main__":
                 if armies_compositions_models[mu].winner_battle(battle, True) == get_winner_loser(battle)[0]:
                     score_most_prob_outcome_predictor += 1
                     good4 = True
-#
+
 #                if not good1 or not good2 or not good3 or not good4:
 #                mu2 = battle[-1][1] + 'v' + battle[-1][0]
 #                print mu
