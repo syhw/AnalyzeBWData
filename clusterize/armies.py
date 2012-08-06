@@ -620,8 +620,10 @@ class ArmyCompositionsGMM(ArmyCompositions):
         if n_components != 0:
             self.gmm = mixture.GMM(n_components=n_components, covariance_type='full')
         else:
-            self.gmm = [mixture.GMM(n_components=i, covariance_type='full') for i in range(3,13)]
-            #self.gmm = [mixture.GMM(n_components=i, covariance_type=cv) for i in range(3,11) for cv in ['spherical', 'tied', 'diag', 'full']]
+            if SERIALIZE_GMM:
+                self.gmm = [mixture.GMM(n_components=i, covariance_type='full') for i in range(3,13)]
+            else:
+                self.gmm = [mixture.GMM(n_components=i, covariance_type=cv) for i in range(3,11) for cv in ['spherical', 'tied', 'diag', 'full']]
         self.compositions = range(n_components)
         self.n_units = len(ArmyCompositions.ut_by[race])
         self.race = race
@@ -677,7 +679,6 @@ class ArmyCompositionsGMM(ArmyCompositions):
                 for feat in range(len(self.gmm.covars_[0])):
                     tmpstr += "feature" + str(feat) + '\n'
                     tmpstr += ";".join(map(str, self.gmm.covars_[comp][feat])) + '\n'
-            tmpstr += self.gmm.covars_.__repr__()
             tmpstr += "weights:\n"
             tmpstr += ";".join(map(str, self.gmm.weights_))
             wf.write(tmpstr)
