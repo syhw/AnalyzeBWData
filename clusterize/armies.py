@@ -28,14 +28,15 @@ except:
 
 SCORES_REGRESSION = False # try to do battles scores regressions
 MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
-MAX_FORCES_RATIO = 1.4 # max differences between engaged forces
+MAX_FORCES_RATIO = 1.2 # max differences between engaged forces
 WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
 WITH_WORKERS = False # tells if we include workers in armies
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
 DEBUG_OUR_CLUST = False # debugging output for our clustering
 DEBUG_GMM = False # debugging output for Gaussian mixtures clustering
 SHOW_NORMALIZE_OUTPUT = False # show normalized tables which are not uniform
-SERIALIZE_GMM = True
+SERIALIZE_GMM = True # serialize GMM parameters in "$RACE[0]".gmm files
+SERIALIZE_C_EC = True # serialize P(Win=true | C, EC) in "$MU".cec files
 NUMBER_OF_TEST_GAMES = 0 # number of test games to use
 PARALLEL_COORDINATES_PLOT = False # should we plot units percentages?
 SCALE_UP_SPECIAL_UNITS = False # scale up special units in the list of percents
@@ -52,6 +53,7 @@ PLOT_W_KNOWING_C_EC = True
 PLOT_ECNEXT_KNOWING_ETT = False
 disc_width = 0.01 # width of bins in P(Unit_i | C)
 epsilon = 1.0e-6 # lowest not zero
+
 
 print >> sys.stderr, "args", sys.argv[1:]
 print >> sys.stderr, "SCORES_REGRESSION ",    SCORES_REGRESSION 
@@ -877,11 +879,15 @@ class ArmyCompositionModel:
         l_p = percent_list.dict_to_list(battle[l], battle[-1][l])
 
 #        print "================================"
+#        print "our race:", self.race
 #        print battle
 #        win_total = 0.0
 #        lose_total = 0.0
 
         winner_efficiency = efficiency(w_a, w_s, l_a, l_s)
+#        winner_efficiency = 1
+#        print "winner efficiency:", winner_efficiency 
+
         if races[w] == self.race:
             distrib_C_us = self.prod_Ui_Cfinal(w_p)
             distrib_C_them = self.prod_EU_EC(l_p)
@@ -974,6 +980,14 @@ class ArmyCompositionModel:
         for cn in range(self.W_knowing_Ccounter_ECnext.shape[1]):
             for ecn in range(self.W_knowing_Ccounter_ECnext.shape[2]):
                 self.W_knowing_Ccounter_ECnext[:,cn,ecn] /= sum(self.W_knowing_Ccounter_ECnext[:,cn,ecn])
+
+        if SERIALIZE_C_EC:
+            wf = open(self.matchup + '.cec', 'w')
+            tmpstr = self.race + " wins vs " + self.erace + '\n'
+            for c in range(len(self.W_knowing_Ccounter_ECnext[1])):
+                tmpstr += "component: " + str(c) + '\n'
+                tmpstr += ";".join(map(str, self.W_knowing_Ccounter_ECnext[1][c])) + '\n'
+            wf.write(tmpstr)
 
         if PLOT_EC_KNOWING_ECNEXT:
             fig = pl.figure()
