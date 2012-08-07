@@ -670,19 +670,19 @@ class ArmyCompositionsGMM(ArmyCompositions):
             tmpstr += "n features: "
             tmpstr += str(len(self.gmm.means_[0])) + '\n'
             tmpstr += "in order:\n" 
-            tmpstr += ";".join(ArmyCompositions.ut_by[self.race]) + '\n'
+            tmpstr += " ".join(map(lambda x: x.replace(' ', '_'), ArmyCompositions.ut_by[self.race])) + '\n'
             tmpstr += "means:\n"
             for comp in range(len(self.gmm.means_)):
-                tmpstr += "component" + str(comp) + '\n'
-                tmpstr += ";".join(map(str, self.gmm.means_[comp])) + '\n'
+                tmpstr += "component: " + str(comp) + '\n'
+                tmpstr += " ".join(map(str, self.gmm.means_[comp])) + '\n'
             tmpstr += "covars:\n"
             for comp in range(len(self.gmm.covars_)):
-                tmpstr += "component" + str(comp) + '\n'
+                tmpstr += "component: " + str(comp) + '\n'
                 for feat in range(len(self.gmm.covars_[0])):
                     tmpstr += "feature" + str(feat) + '\n'
-                    tmpstr += ";".join(map(str, self.gmm.covars_[comp][feat])) + '\n'
+                    tmpstr += " ".join(map(str, self.gmm.covars_[comp][feat])) + '\n'
             tmpstr += "weights:\n"
-            tmpstr += ";".join(map(str, self.gmm.weights_))
+            tmpstr += " ".join(map(str, self.gmm.weights_))
             wf.write(tmpstr)
 
         self.compositions = range(self.gmm.n_components)
@@ -986,7 +986,7 @@ class ArmyCompositionModel:
             tmpstr = self.race + " wins vs " + self.erace + '\n'
             for c in range(len(self.W_knowing_Ccounter_ECnext[1])):
                 tmpstr += "component: " + str(c) + '\n'
-                tmpstr += ";".join(map(str, self.W_knowing_Ccounter_ECnext[1][c])) + '\n'
+                tmpstr += " ".join(map(str, self.W_knowing_Ccounter_ECnext[1][c])) + '\n'
             wf.write(tmpstr)
 
         if PLOT_EC_KNOWING_ECNEXT:
