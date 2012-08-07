@@ -679,7 +679,7 @@ class ArmyCompositionsGMM(ArmyCompositions):
             for comp in range(len(self.gmm.covars_)):
                 tmpstr += "component: " + str(comp) + '\n'
                 for feat in range(len(self.gmm.covars_[0])):
-                    tmpstr += "feature" + str(feat) + '\n'
+                    tmpstr += "feature: " + str(feat) + '\n'
                     tmpstr += " ".join(map(str, self.gmm.covars_[comp][feat])) + '\n'
             tmpstr += "weights:\n"
             tmpstr += " ".join(map(str, self.gmm.weights_))
