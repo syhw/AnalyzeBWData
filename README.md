@@ -17,3 +17,11 @@ Possibilities
 Models
 ======
 
+[Special Tactics: a Bayesian Approach to Tactical Decision-making, Gabriel Synnaeve, Pierre Bessière, CIG (IEEE) 2012](http://emotion.inrialpes.fr/people/synnaeve/index_files/SpecialTactics.pdf)
+ is in battles/tactics.py
+
+[A Dataset for StarCraft AI & an Example of Armies Clustering, Gabriel Synnaeve, Pierre Bessière, AIIDE Workshop on AI in Adversarial Real-time games 2012](http://emotion.inrialpes.fr/people/synnaeve/index_files/dataset_army_composition.pdf) the model in here (also end of the "Strategy" chapter in my Ph.D thesis) is in clusterize/armies.py
+
+
+Also see other directories.
+
