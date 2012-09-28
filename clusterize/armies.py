@@ -28,15 +28,15 @@ except:
 
 SCORES_REGRESSION = False # try to do battles scores regressions
 MIN_POP_ENGAGED = 6 # 12 zerglings, 6 marines, 3 zealots
-MAX_FORCES_RATIO = 1.2 # max differences between engaged forces
+MAX_FORCES_RATIO = 1.5 # max differences between engaged forces
 WITH_STATIC_DEFENSE = False # tells if we include static defense in armies
 WITH_WORKERS = False # tells if we include workers in armies
 CSV_ARMIES_OUTPUT = True # CSV output of the armies compositions
 DEBUG_OUR_CLUST = False # debugging output for our clustering
 DEBUG_GMM = False # debugging output for Gaussian mixtures clustering
 SHOW_NORMALIZE_OUTPUT = False # show normalized tables which are not uniform
-SERIALIZE_GMM = True # serialize GMM parameters in "$RACE[0]".gmm files
-SERIALIZE_C_EC = True # serialize P(Win=true | C, EC) in "$MU".cec files
+SERIALIZE_GMM = False # serialize GMM parameters in "$RACE[0]".gmm files
+SERIALIZE_C_EC = False # serialize P(Win=true | C, EC) in "$MU".cec files
 NUMBER_OF_TEST_GAMES = 0 # number of test games to use
 PARALLEL_COORDINATES_PLOT = False # should we plot units percentages?
 SCALE_UP_SPECIAL_UNITS = False # scale up special units in the list of percents
@@ -651,17 +651,48 @@ class ArmyCompositionsGMM(ArmyCompositions):
         (components), select the lowest BIC GMM """
         self.data = np.array(self.data)
         if self.compositions == []:
-            best_gmm = 0
-            best_bic = 1e30
-            for i, g in enumerate(self.gmm):
-                g.fit(self.data)
-                tmp = g.bic(self.data)
-                if tmp < best_bic:
-                    best_gmm = i
-                    best_bic = tmp
-            self.gmm = self.gmm[best_gmm]
+
+            ### TEST EM
+            from sklearn import mixture
+            t_l = []
+            t_w = set()
+            t_m = []
+            t_c = []
+            for i in range(60):
+            ### /TEST EM
+
+                best_gmm = 0
+                best_bic = 1e30
+                for i, g in enumerate(self.gmm):
+                    g.fit(self.data)
+                    tmp = g.bic(self.data)
+                    if tmp < best_bic:
+                        best_gmm = i
+                        best_bic = tmp
+                self.gmm = self.gmm[best_gmm]
+
+            ### TEST EM
+                t_l.append(len(self.gmm.weights_))
+                for w in self.gmm.weights_:
+                    t_w.add("%.02f" % w)
+        #        for m in self.gmm.means_:
+        #            t_m.add(str(m))
+        #        for c in self.gmm.covars_:
+        #            t_c.add(str(c))
+                self.gmm = [mixture.GMM(n_components=i, covariance_type=cv) for i in range(7,10) for cv in ['full']]
+
+            print t_l
+            print t_w
+            #print t_m
+            #print t_c
+            print len(t_w)
+            #print len(t_m)
+            #print len(t_c)
+            ### /TEST EM
+
         else:
             self.gmm.fit(self.data)
+
 
         if SERIALIZE_GMM:
             wf = open(self.race + '.gmm', 'w')
