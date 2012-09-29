@@ -617,15 +617,25 @@ class ArmyCompositionsLDA(ArmyCompositions):
 
 
 class ArmyCompositionsGMM(ArmyCompositions):
-    def __init__(self, race, n_components=0):
+    def __init__(self, race, n_components=0, vb=None):
+        self.vb = vb
         from sklearn import mixture
         if n_components != 0:
-            self.gmm = mixture.GMM(n_components=n_components, covariance_type='full')
-        else:
-            if SERIALIZE_GMM:
-                self.gmm = [mixture.GMM(n_components=i, covariance_type='full') for i in range(3,13)]
+            if vb:
+                self.gmm = mixture.VBGMM(n_components=n_components, covariance_type='full')
             else:
-                self.gmm = [mixture.GMM(n_components=i, covariance_type=cv) for i in range(3,11) for cv in ['spherical', 'tied', 'diag', 'full']]
+                self.gmm = mixture.GMM(n_components=n_components, covariance_type='full')
+        else:
+            if vb:
+                if SERIALIZE_GMM:
+                    self.gmm = [mixture.VBGMM(n_components=i, covariance_type='full') for i in range(3,13)]
+                else:
+                    self.gmm = [mixture.VBGMM(n_components=i, covariance_type=cv) for i in range(3,11) for cv in ['spherical', 'tied', 'diag', 'full']]
+            else:
+                if SERIALIZE_GMM:
+                    self.gmm = [mixture.GMM(n_components=i, covariance_type='full') for i in range(3,13)]
+                else:
+                    self.gmm = [mixture.GMM(n_components=i, covariance_type=cv) for i in range(3,11) for cv in ['spherical', 'tied', 'diag', 'full']]
         self.compositions = range(n_components)
         self.n_units = len(ArmyCompositions.ut_by[race])
         self.race = race
@@ -656,8 +666,7 @@ class ArmyCompositionsGMM(ArmyCompositions):
             from sklearn import mixture
             t_l = []
             t_w = set()
-            t_m = []
-            t_c = []
+            t_m = set()
             for i in range(60):
             ### /TEST EM
 
@@ -674,20 +683,18 @@ class ArmyCompositionsGMM(ArmyCompositions):
             ### TEST EM
                 t_l.append(len(self.gmm.weights_))
                 for w in self.gmm.weights_:
-                    t_w.add("%.02f" % w)
-        #        for m in self.gmm.means_:
-        #            t_m.add(str(m))
-        #        for c in self.gmm.covars_:
-        #            t_c.add(str(c))
-                self.gmm = [mixture.GMM(n_components=i, covariance_type=cv) for i in range(7,10) for cv in ['full']]
-
-            print t_l
-            print t_w
-            #print t_m
-            #print t_c
-            print len(t_w)
-            #print len(t_m)
-            #print len(t_c)
+                    t_w.add("%.03f" % w)
+                for m in self.gmm.means_:
+                    t_m.add(str(map(lambda x: "%.03f" % x, sorted(m))))
+                if self.vb:
+                    self.gmm = [mixture.VBGMM(n_components=i, covariance_type=cv) for i in range(7,10) for cv in ['full']]
+                else:
+                    self.gmm = [mixture.GMM(n_components=i, covariance_type=cv) for i in range(7,10) for cv in ['full']]
+            print "number of components:", t_l
+            print "different weights:", t_w
+            print "different sets of means:", t_m
+            print "length set weights above:", len(t_w)
+            print "length set sets of means above:", len(t_m)
             ### /TEST EM
 
         else:
@@ -785,7 +792,25 @@ class ArmyCompositionsDPGMM(ArmyCompositions):
     def prune(self):
         """ Fit the DPGMM """ 
         self.data = np.array(self.data)
-        self.dpgmm.fit(self.data)
+        # TEST EM
+        t_l = []
+        t_w = set()
+        t_m = set()
+        for i in range(60):
+        # /TEST EM
+            self.dpgmm.fit(self.data)
+        # TEST EM
+            t_l.append(len(self.dpgmm.weights_))
+            for w in self.dpgmm.weights_:
+                t_w.add("%.03f" % w)
+            for m in self.dpgmm.means_:
+                t_m.add(str(map(lambda x: "%.03f" % x, sorted(m))))
+        print "number of components:", t_l
+        print "different weights:", t_w
+        print "different sets of means:", t_m
+        print "length set weights above:", len(t_w)
+        print "length set sets of means above:", len(t_m)
+        # /TEST EM
         if self.compositions == []:
             nc = 42
             Y = self.dpgmm.predict(self.data)
@@ -1219,13 +1244,13 @@ fnamelist = []
 #ArmyCompositionsKmeans('T', 6)
 #ArmyCompositionsKmeans('Z', 6)
 
-ArmyCompositionsGMM('P')
-ArmyCompositionsGMM('T')
-ArmyCompositionsGMM('Z')
+ArmyCompositionsGMM('P', vb=True)
+ArmyCompositionsGMM('T', vb=True)
+ArmyCompositionsGMM('Z', vb=True)
 
-#ArmyCompositionsDPGMM('P', 6)
-#ArmyCompositionsDPGMM('T', 6)
-#ArmyCompositionsDPGMM('Z', 6)
+#ArmyCompositionsDPGMM('P', 9)
+#ArmyCompositionsDPGMM('T', 9)
+#ArmyCompositionsDPGMM('Z', 9)
 
 #ArmyCompositionsLDA('P', 6)
 #ArmyCompositionsLDA('T', 6)
