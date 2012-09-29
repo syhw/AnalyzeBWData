@@ -661,42 +661,15 @@ class ArmyCompositionsGMM(ArmyCompositions):
         (components), select the lowest BIC GMM """
         self.data = np.array(self.data)
         if self.compositions == []:
-
-            ### TEST EM
-            from sklearn import mixture
-            t_l = []
-            t_w = set()
-            t_m = set()
-            for i in range(60):
-            ### /TEST EM
-
-                best_gmm = 0
-                best_bic = 1e30
-                for i, g in enumerate(self.gmm):
-                    g.fit(self.data)
-                    tmp = g.bic(self.data)
-                    if tmp < best_bic:
-                        best_gmm = i
-                        best_bic = tmp
-                self.gmm = self.gmm[best_gmm]
-
-            ### TEST EM
-                t_l.append(len(self.gmm.weights_))
-                for w in self.gmm.weights_:
-                    t_w.add("%.03f" % w)
-                for m in self.gmm.means_:
-                    t_m.add(str(map(lambda x: "%.03f" % x, sorted(m))))
-                if self.vb:
-                    self.gmm = [mixture.VBGMM(n_components=i, covariance_type=cv) for i in range(7,10) for cv in ['full']]
-                else:
-                    self.gmm = [mixture.GMM(n_components=i, covariance_type=cv) for i in range(7,10) for cv in ['full']]
-            print "number of components:", t_l
-            print "different weights:", t_w
-            print "different sets of means:", t_m
-            print "length set weights above:", len(t_w)
-            print "length set sets of means above:", len(t_m)
-            ### /TEST EM
-
+            best_gmm = 0
+            best_bic = 1e30
+            for i, g in enumerate(self.gmm):
+                g.fit(self.data)
+                tmp = g.bic(self.data)
+                if tmp < best_bic:
+                    best_gmm = i
+                    best_bic = tmp
+            self.gmm = self.gmm[best_gmm]
         else:
             self.gmm.fit(self.data)
 
@@ -792,25 +765,7 @@ class ArmyCompositionsDPGMM(ArmyCompositions):
     def prune(self):
         """ Fit the DPGMM """ 
         self.data = np.array(self.data)
-        # TEST EM
-        t_l = []
-        t_w = set()
-        t_m = set()
-        for i in range(60):
-        # /TEST EM
-            self.dpgmm.fit(self.data)
-        # TEST EM
-            t_l.append(len(self.dpgmm.weights_))
-            for w in self.dpgmm.weights_:
-                t_w.add("%.03f" % w)
-            for m in self.dpgmm.means_:
-                t_m.add(str(map(lambda x: "%.03f" % x, sorted(m))))
-        print "number of components:", t_l
-        print "different weights:", t_w
-        print "different sets of means:", t_m
-        print "length set weights above:", len(t_w)
-        print "length set sets of means above:", len(t_m)
-        # /TEST EM
+        self.dpgmm.fit(self.data)
         if self.compositions == []:
             nc = 42
             Y = self.dpgmm.predict(self.data)
